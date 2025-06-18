@@ -191,26 +191,42 @@ export const POST = withAuth(async (request: NextRequest, user) => {
         `
       }
 
-      // Commit transaction
-      await sql`COMMIT`
-
-      // Get client name for the ledger entry
+      // Get client name for the ledger entry before committing
       const clientResult = await sql`
         SELECT business_name FROM clients WHERE id = ${clientId}
       `
 
       const clientName = clientResult.length > 0 ? clientResult[0].business_name : "Unknown Client"
 
-      // Add to ledger if status is not draft
-      if (status && status !== "draft") {
-        await addTransactionToLedger({
-          transactionId,
-          transactionDate,
-          totalAmount,
-          clientId,
-          clientName,
-        })
+      // Add to ledger only if status is paid (not pending)
+      // Pending transactions should only add payments to ledger, not the full amount
+      if (status && status === "paid") {
+        await sql`
+          INSERT INTO ledger (
+            entry_date, 
+            entry_type, 
+            amount, 
+            description, 
+            reference_id, 
+            reference_type, 
+            client_id,
+            created_by
+          )
+          VALUES (
+            ${transactionDate}, 
+            'income', 
+            ${totalAmount}, 
+            ${"Invoice " + transactionId + " - " + clientName}, 
+            ${transactionId}, 
+            'client_transaction', 
+            ${clientId},
+            ${user.userId}
+          )
+        `
       }
+
+      // Commit transaction (includes both transaction and ledger entry)
+      await sql`COMMIT`
 
       return NextResponse.json({
         success: true,
@@ -228,36 +244,4 @@ export const POST = withAuth(async (request: NextRequest, user) => {
       { status: 500 }
     )
   }
-}, ['admin', 'staff'])
-
-// Helper function to add transaction to ledger
-async function addTransactionToLedger(transaction: any) {
-  try {
-    // Add the transaction to the ledger as income
-    await sql`
-      INSERT INTO ledger (
-        entry_date, 
-        entry_type, 
-        amount, 
-        description, 
-        reference_id, 
-        reference_type, 
-        client_id
-      )
-      VALUES (
-        ${transaction.transactionDate}, 
-        'income', 
-        ${transaction.totalAmount}, 
-        ${"Invoice " + transaction.transactionId + " - " + transaction.clientName}, 
-        ${transaction.transactionId}, 
-        'client_transaction', 
-        ${transaction.clientId}
-      )
-    `
-
-    return true
-  } catch (error) {
-    console.error("Error adding transaction to ledger:", error)
-    return false
-  }
-} 
+}, ['admin', 'staff']) 

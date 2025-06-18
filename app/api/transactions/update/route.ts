@@ -40,9 +40,9 @@ export const POST = withAuth(async (request: NextRequest, user) => {
     await sql`BEGIN`
 
     try {
-      // Get the transaction to verify ownership
+      // Get the transaction to verify ownership and check current status
       const existingTransaction = await sql`
-        SELECT id FROM transactions 
+        SELECT id, status FROM transactions 
         WHERE transaction_id = ${transactionId} AND created_by = ${user.userId}
       `
 
@@ -55,6 +55,7 @@ export const POST = withAuth(async (request: NextRequest, user) => {
       }
 
       const transactionDbId = existingTransaction[0].id
+      const oldStatus = existingTransaction[0].status
 
       // Update transaction
       await sql`
@@ -97,6 +98,63 @@ export const POST = withAuth(async (request: NextRequest, user) => {
             ${item.taxRate || 0},
             ${item.total}
           )
+        `
+      }
+
+      // Handle ledger entry updates based on status changes
+      // Only paid transactions get full amount in ledger, pending transactions use payment records
+      const wasNotInLedger = !oldStatus || oldStatus === "draft" || oldStatus === "pending"
+      const shouldBeInLedger = status && status === "paid"
+
+      if (wasNotInLedger && shouldBeInLedger) {
+        // Create new ledger entry - transaction became paid
+        const clientResult = await sql`
+          SELECT business_name FROM clients WHERE id = ${clientId}
+        `
+        const clientName = clientResult.length > 0 ? clientResult[0].business_name : "Unknown Client"
+
+        await sql`
+          INSERT INTO ledger (
+            entry_date, 
+            entry_type, 
+            amount, 
+            description, 
+            reference_id, 
+            reference_type, 
+            client_id,
+            created_by
+          )
+          VALUES (
+            ${transactionDate}, 
+            'income', 
+            ${totalAmount}, 
+            ${"Invoice " + transactionId + " - " + clientName}, 
+            ${transactionId}, 
+            'client_transaction', 
+            ${clientId},
+            ${user.userId}
+          )
+        `
+      } else if (!wasNotInLedger && shouldBeInLedger) {
+        // Update existing ledger entry - transaction details changed
+        const clientResult = await sql`
+          SELECT business_name FROM clients WHERE id = ${clientId}
+        `
+        const clientName = clientResult.length > 0 ? clientResult[0].business_name : "Unknown Client"
+
+        await sql`
+          UPDATE ledger SET
+            entry_date = ${transactionDate},
+            amount = ${totalAmount},
+            description = ${"Invoice " + transactionId + " - " + clientName},
+            client_id = ${clientId}
+          WHERE reference_id = ${transactionId} AND reference_type = 'client_transaction'
+        `
+      } else if (!wasNotInLedger && !shouldBeInLedger) {
+        // Remove from ledger - transaction became draft or pending
+        await sql`
+          DELETE FROM ledger 
+          WHERE reference_id = ${transactionId} AND reference_type = 'client_transaction'
         `
       }
 

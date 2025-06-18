@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import { useRouter } from "next/navigation"
 import {
   ChevronDown,
@@ -37,7 +37,7 @@ type LedgerEntry = {
   amount: number
   description: string
   reference_id: string
-  reference_type: "client_transaction" | "staff_payment"
+  reference_type: "client_transaction" | "staff_payment" | "transaction_payment"
   client_id: number | null
   staff_id: number | null
   client_name?: string
@@ -55,6 +55,7 @@ type YearlySummary = {
 
 export default function AdminLedger() {
   const router = useRouter()
+  const isFetchingRef = useRef(false)
 
   // Get current date information
   const currentDate = new Date()
@@ -119,14 +120,19 @@ export default function AdminLedger() {
     checkAuth()
   }, [router])
 
-  // Apply filters when filter criteria change
+  // Fetch entries when user is authenticated and month/year selection changes
   useEffect(() => {
-    if (selectedYear !== currentYear || selectedMonth !== currentMonth) {
+    if (user) {
       fetchFilteredEntries()
-    } else if (allEntries.length > 0) {
+    }
+  }, [user, selectedYear, selectedMonth])
+
+  // Apply search filter when search query changes
+  useEffect(() => {
+    if (allEntries.length > 0) {
       applyClientSideFilters()
     }
-  }, [selectedYear, selectedMonth, searchQuery, allEntries])
+  }, [searchQuery, allEntries])
 
   const fetchCurrentMonthData = async () => {
     try {
@@ -134,8 +140,6 @@ export default function AdminLedger() {
       
       if (response.success && response.data?.success) {
         setCurrentMonthTotals(response.data.summary)
-        // For current month, we also get entries for quick display
-        await fetchFilteredEntries()
       } else {
         toast({
           title: "Error",
@@ -279,7 +283,8 @@ export default function AdminLedger() {
     try {
       await Promise.all([
         fetchCurrentMonthData(),
-        fetchYearlySummary()
+        fetchYearlySummary(),
+        fetchFilteredEntries()
       ])
       toast({
         title: "Success",

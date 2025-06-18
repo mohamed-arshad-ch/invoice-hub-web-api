@@ -634,6 +634,210 @@ await logout()
 }
 ```
 
+### 6. Transaction Payment Management
+**Endpoint:** `POST /api/transactions/payments`
+
+**Description:** Manage payments for pending transactions. This API allows recording partial or full payments against pending transactions, automatically updating transaction status and creating corresponding ledger entries.
+
+#### Get Payments for Transaction
+**Request Body:**
+```json
+{
+  "action": "get-payments",
+  "transactionId": "INV-2024-1234"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "payments": [
+    {
+      "id": 1,
+      "transaction_id": 1,
+      "amount": 2000.00,
+      "payment_date": "2024-01-20",
+      "payment_method": "bank_transfer",
+      "reference_number": "TXN-PAY-001",
+      "notes": "Partial payment received",
+      "created_by": 1,
+      "created_at": "2024-01-20T10:30:00Z",
+      "updated_at": "2024-01-20T10:30:00Z"
+    }
+  ],
+  "totalPaid": 2000.00,
+  "remainingAmount": 8000.00,
+  "transactionTotal": 10000.00
+}
+```
+
+#### Record Payment
+**Request Body:**
+```json
+{
+  "action": "record-payment",
+  "transactionId": "INV-2024-1234",
+  "amount": 2000.00,
+  "paymentDate": "2024-01-20",
+  "paymentMethod": "bank_transfer",
+  "referenceNumber": "TXN-PAY-001",
+  "notes": "Partial payment received"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "payment": {
+    "id": 1,
+    "transaction_id": 1,
+    "amount": 2000.00,
+    "payment_date": "2024-01-20",
+    "payment_method": "bank_transfer",
+    "reference_number": "TXN-PAY-001",
+    "notes": "Partial payment received",
+    "created_by": 1,
+    "created_at": "2024-01-20T10:30:00Z"
+  },
+  "ledgerEntry": {
+    "id": 15,
+    "entry_date": "2024-01-20",
+    "entry_type": "income",
+    "amount": 2000.00,
+    "description": "Payment received for INV-2024-1234",
+    "reference_id": "TXN-PAY-1",
+    "reference_type": "transaction_payment"
+  },
+  "transactionStatus": "partial",
+  "totalPaid": 2000.00,
+  "remainingAmount": 8000.00,
+  "message": "Payment recorded successfully and ledger entry created"
+}
+```
+
+#### Update Payment
+**Request Body:**
+```json
+{
+  "action": "update-payment",
+  "paymentId": 1,
+  "amount": 2500.00,
+  "paymentDate": "2024-01-20",
+  "paymentMethod": "credit_card",
+  "referenceNumber": "TXN-PAY-001-UPDATED",
+  "notes": "Updated payment amount"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "payment": {
+    "id": 1,
+    "transaction_id": 1,
+    "amount": 2500.00,
+    "payment_date": "2024-01-20",
+    "payment_method": "credit_card",
+    "reference_number": "TXN-PAY-001-UPDATED",
+    "notes": "Updated payment amount",
+    "created_by": 1,
+    "updated_at": "2024-01-20T15:45:00Z"
+  },
+  "transactionStatus": "partial",
+  "totalPaid": 2500.00,
+  "remainingAmount": 7500.00,
+  "message": "Payment updated successfully"
+}
+```
+
+#### Delete Payment
+**Request Body:**
+```json
+{
+  "action": "delete-payment",
+  "paymentId": 1
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "transactionStatus": "pending",
+  "totalPaid": 0.00,
+  "remainingAmount": 10000.00,
+  "message": "Payment deleted successfully and ledger entry removed"
+}
+```
+
+#### Get Payment Summary
+**Request Body:**
+```json
+{
+  "action": "get-payment-summary",
+  "transactionId": "INV-2024-1234"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "summary": {
+    "transactionId": "INV-2024-1234",
+    "transactionTotal": 10000.00,
+    "totalPaid": 6000.00,
+    "remainingAmount": 4000.00,
+    "paymentCount": 3,
+    "status": "partial",
+    "lastPaymentDate": "2024-01-25",
+    "payments": [
+      {
+        "id": 1,
+        "amount": 2000.00,
+        "payment_date": "2024-01-20",
+        "payment_method": "bank_transfer"
+      },
+      {
+        "id": 2,
+        "amount": 2500.00,
+        "payment_date": "2024-01-22",
+        "payment_method": "credit_card"
+      },
+      {
+        "id": 3,
+        "amount": 1500.00,
+        "payment_date": "2024-01-25",
+        "payment_method": "cash"
+      }
+    ]
+  }
+}
+```
+
+**Payment Methods Supported:**
+- `cash`
+- `credit_card`
+- `debit_card`
+- `bank_transfer`
+- `cheque`
+- `online_payment`
+- `other`
+
+**Transaction Status Updates:**
+- `pending` → `partial` (when first payment is recorded)
+- `partial` → `paid` (when total payments equal transaction amount)
+- `partial` → `pending` (when all payments are deleted)
+
+**Note:** Recording a payment automatically:
+1. Creates a ledger entry with type "income"
+2. Updates the transaction status based on payment completion
+3. Validates that payment amount doesn't exceed remaining balance
+4. Ensures data consistency through database transactions
+
 ## Ledger APIs
 
 ### 1. Ledger Operations
@@ -939,6 +1143,7 @@ This comprehensive API structure provides full CRUD operations for all major ent
 - `POST /api/transactions/get-by-id` - Get transaction by ID
 - `POST /api/transactions/update` - Update transaction
 - `POST /api/transactions/delete` - Delete transaction
+- `POST /api/transactions/payments` - Manage transaction payments (record/update/delete/get payments)
 
 **Product Management APIs:**
 - `GET /api/products` - Get all products

@@ -12,7 +12,7 @@ export type LedgerEntry = {
   amount: number
   description: string
   reference_id: string
-  reference_type: "client_transaction" | "staff_payment"
+  reference_type: "client_transaction" | "staff_payment" | "transaction_payment"
   client_id: number | null
   staff_id: number | null
   client_name?: string

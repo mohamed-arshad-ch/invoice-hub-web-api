@@ -214,30 +214,7 @@ export async function getStaffTotalPaidAmount(staffId: number) {
   }
 }
 
-// Add this function to the existing file
-// This is a helper function to add a staff payment to the ledger
-export async function addStaffPaymentToLedger(payment: any, staffName: string) {
-  try {
-    const { addLedgerEntry } = await import("./ledger-actions")
 
-    // Add the payment to the ledger as expense
-    await addLedgerEntry({
-      entry_date: payment.date_paid,
-      entry_type: "expense",
-      amount: payment.amount,
-      description: `Payment to ${staffName}`,
-      reference_id: `STAFF-PAY-${payment.id}`,
-      reference_type: "staff_payment",
-      client_id: null,
-      staff_id: payment.staff_id,
-    })
-
-    return true
-  } catch (error) {
-    console.error("Error adding staff payment to ledger:", error)
-    return false
-  }
-}
 
 // Delete staff payment
 export async function deleteStaffPayment(paymentId: number) {
@@ -307,15 +284,7 @@ export async function recordStaffPayment(formData: FormData) {
 
     const newPayment = await createStaffPayment(paymentData)
 
-    // Get staff name for the ledger entry
-    const staffResult = await sql`
-      SELECT name FROM staff WHERE id = ${staffId}
-    `
-
-    const staffName = staffResult.length > 0 ? staffResult[0].name : "Unknown Staff"
-
-    // Add to ledger
-    await addStaffPaymentToLedger(newPayment, staffName)
+    // Note: Ledger entry is now automatically created by the API when using createStaffPayment
 
     revalidatePath(`/admin/staff/payments/${staffId}`)
     return { success: true, data: newPayment }

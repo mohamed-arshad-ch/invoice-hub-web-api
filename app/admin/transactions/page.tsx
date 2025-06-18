@@ -40,6 +40,7 @@ import { apiGet, apiPost } from "@/lib/api-client"
 import { toast } from "@/hooks/use-toast"
 import { ConfirmationModal } from "@/app/components/ui/confirmation-modal"
 import { AddButton } from "@/app/components/ui/floating-action-button"
+import RecordPaymentModal from "@/app/components/transactions/record-payment-modal"
 
 // Import the currency utility
 import { formatCurrency } from "@/lib/utils-currency"
@@ -83,10 +84,18 @@ export default function AdminTransactions() {
   const [selectedTransaction, setSelectedTransaction] = useState<any | null>(null)
   const [showTransactionDetails, setShowTransactionDetails] = useState(false)
   const [loadingTransaction, setLoadingTransaction] = useState(false)
+  const [transactionPayments, setTransactionPayments] = useState<any[]>([])
+  const [paymentSummary, setPaymentSummary] = useState<any>(null)
+  const [loadingPayments, setLoadingPayments] = useState(false)
 
   // Confirmation modal state
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [transactionToDelete, setTransactionToDelete] = useState<string | null>(null)
+  
+  // Record payment modal state
+  const [showRecordPaymentModal, setShowRecordPaymentModal] = useState(false)
+  const [selectedTransactionForPayment, setSelectedTransactionForPayment] = useState<Transaction | null>(null)
+  const [recordingPayment, setRecordingPayment] = useState(false)
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1)
@@ -293,17 +302,79 @@ export default function AdminTransactions() {
     draft: { color: "bg-gray-100 text-gray-800", icon: <FileText className="w-4 h-4" /> },
   }
 
+  // Fetch transaction payments
+  const fetchTransactionPayments = async (transactionId: string) => {
+    try {
+      setLoadingPayments(true)
+      const response = await apiPost('/api/transactions/payments', {
+        action: 'get-payments',
+        transactionId: transactionId
+      })
+
+      if (response.success && response.data && response.data.success) {
+        console.log('API Response:', response.data);
+        console.log('Payments data:', response.data.data.payments);
+        
+        // Handle the actual API response format - data is nested in response.data.data
+        const payments = response.data.data.payments || [];
+        const summary = {
+          totalPaid: response.data.data.totalPaid || 0,
+          remainingAmount: response.data.data.remainingAmount || 0,
+          transactionTotal: response.data.data.transactionTotal || 0,
+          paymentCount: payments.length
+        };
+        
+        // Set the state
+        setTransactionPayments(payments);
+        setPaymentSummary(summary);
+        
+        console.log('Setting payments:', payments);
+        console.log('Setting summary:', summary);
+        
+        // Return the data for potential use
+        return { payments, summary, success: true };
+      } else {
+        console.error("Error fetching payments:", response.error)
+        setTransactionPayments([])
+        setPaymentSummary(null)
+        return { payments: [], summary: null, success: false, error: response.error };
+      }
+    } catch (error) {
+      console.error("Error fetching transaction payments:", error)
+      setTransactionPayments([])
+      setPaymentSummary(null)
+      return { payments: [], summary: null, success: false, error: String(error) };
+    } finally {
+      setLoadingPayments(false)
+    }
+  }
+
   // Handle transaction actions
   const handleViewTransaction = async (transaction: Transaction) => {
     try {
       setLoadingTransaction(true)
+      setTransactionPayments([]) // Reset payments
+      setPaymentSummary(null) // Reset payment summary
+      setShowTransactionDetails(false) // Hide details initially
+      
       const response = await apiPost('/api/transactions/get-by-id', { 
         transactionId: transaction.transactionId 
       })
 
       if (response.success) {
+        // First set the selected transaction
         setSelectedTransaction(response.data.transaction)
+        
+        // Then fetch payments and wait for completion
+        const paymentResult = await fetchTransactionPayments(transaction.transactionId)
+        
+        // Only show transaction details after both transaction and payments are loaded
+        // Show details regardless of payment fetch success (payments might not exist)
         setShowTransactionDetails(true)
+        
+        if (!paymentResult.success) {
+          console.warn('Failed to fetch payments, but showing transaction details anyway:', paymentResult.error)
+        }
       } else {
         toast({
           title: "Error",
@@ -380,6 +451,70 @@ export default function AdminTransactions() {
     } finally {
       setShowDeleteModal(false)
       setTransactionToDelete(null)
+    }
+  }
+
+  // Handle record payment
+  const handleRecordPayment = async (transaction: Transaction) => {
+    setSelectedTransactionForPayment(transaction)
+    
+    // Fetch existing payments for this transaction if it's partial
+    if (transaction.status === 'partial') {
+      await fetchTransactionPayments(transaction.transactionId)
+    } else {
+      setTransactionPayments([])
+    }
+    
+    setShowRecordPaymentModal(true)
+  }
+
+  const handleSubmitPayment = async (paymentData: any) => {
+    if (!selectedTransactionForPayment) return
+
+    setRecordingPayment(true)
+    try {
+      const response = await apiPost('/api/transactions/payments', {
+        action: "record-payment",
+        transactionId: selectedTransactionForPayment.transactionId,
+        amount: parseFloat(paymentData.amount),
+        paymentDate: paymentData.paymentDate,
+        paymentMethod: paymentData.paymentMethod,
+        referenceNumber: paymentData.referenceNumber,
+        notes: paymentData.notes
+      })
+
+      if (response.success && response.data?.success) {
+        toast({
+          title: "Success",
+          description: response.data.message || "Payment recorded successfully",
+        })
+        
+        // Refresh transactions to get updated status
+        await fetchTransactions()
+        
+        // If transaction details panel is open, refresh payments
+        if (showTransactionDetails && selectedTransaction) {
+          await fetchTransactionPayments(selectedTransaction.transactionId)
+        }
+        
+        setShowRecordPaymentModal(false)
+        setSelectedTransactionForPayment(null)
+      } else {
+        toast({
+          title: "Error",
+          description: response.data?.error || response.error || "Failed to record payment",
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      console.error("Error recording payment:", error)
+      toast({
+        title: "Error",
+        description: "An unexpected error occurred while recording the payment",
+        variant: "destructive",
+      })
+    } finally {
+      setRecordingPayment(false)
     }
   }
 
@@ -618,6 +753,15 @@ export default function AdminTransactions() {
                     >
                       <Eye className="w-4 h-4" />
                     </button>
+                    {(transaction.status === "pending" || transaction.status === "partial") && (
+                      <button
+                        onClick={() => handleRecordPayment(transaction)}
+                        className="p-2 rounded-full bg-green-50 text-green-600 hover:bg-green-100 transition-colors"
+                        aria-label="Record payment"
+                      >
+                        <CreditCard className="w-4 h-4" />
+                      </button>
+                    )}
                     <button
                       onClick={() => handleEditTransaction(transaction.transactionId)}
                       className="p-2 rounded-full bg-purple-50 text-[#8338EC] hover:bg-purple-100 transition-colors"
@@ -840,6 +984,98 @@ export default function AdminTransactions() {
                         </div>
                       )}
 
+
+
+                      {/* Transaction Payments Section */}
+                      {(selectedTransaction.status === 'partial' || selectedTransaction.status === 'paid' || transactionPayments.length > 0) && (
+                        <div>
+                          <h4 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-3 font-poppins flex items-center">
+                            <CreditCard className="w-4 h-4 mr-2" />
+                            Payment History
+                          </h4>
+                          {loadingPayments ? (
+                            <div className="bg-gray-50 p-4 rounded-md flex justify-center">
+                              <div className="w-6 h-6 border-2 border-[#3A86FF] border-t-transparent rounded-full animate-spin"></div>
+                            </div>
+                          ) : transactionPayments.length > 0 ? (
+                            <div className="space-y-3">
+                              {transactionPayments.map((payment: any) => (
+                                <div key={payment.id} className="bg-gray-50 p-4 rounded-md">
+                                  <div className="flex justify-between items-start mb-2">
+                                    <div className="flex-1">
+                                      <div className="flex items-center justify-between mb-1">
+                                        <span className="font-medium text-gray-900 font-poppins">
+                                          {formatCurrency(payment.amount)}
+                                        </span>
+                                        <span className="text-sm text-gray-500 font-poppins">
+                                          {formatDate(payment.payment_date)}
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center text-sm text-gray-600 font-poppins">
+                                        <span className="capitalize">{payment.payment_method?.replace(/_/g, ' ')}</span>
+                                        {payment.reference_number && (
+                                          <>
+                                            <span className="mx-2">•</span>
+                                            <span>Ref: {payment.reference_number}</span>
+                                          </>
+                                        )}
+                                      </div>
+                                      {payment.notes && (
+                                        <p className="text-sm text-gray-600 font-poppins mt-1">{payment.notes}</p>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                              
+                              {/* Payment Summary */}
+                              {paymentSummary && (
+                                <div className="bg-blue-50 p-4 rounded-md border border-blue-200">
+                                  <div className="flex justify-between items-center">
+                                    <span className="text-sm font-medium text-blue-900 font-poppins">
+                                      Total Amount:
+                                    </span>
+                                    <span className="font-bold text-blue-900 font-poppins">
+                                      {formatCurrency(paymentSummary.transactionTotal)}
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between items-center mt-1">
+                                    <span className="text-sm font-medium text-blue-900 font-poppins">
+                                      Total Paid:
+                                    </span>
+                                    <span className="font-bold text-green-600 font-poppins">
+                                      {formatCurrency(paymentSummary.totalPaid)}
+                                    </span>
+                                  </div>
+                                  {paymentSummary.remainingAmount > 0 && (
+                                    <div className="flex justify-between items-center mt-1">
+                                      <span className="text-sm text-blue-700 font-poppins">
+                                        Remaining Balance:
+                                      </span>
+                                      <span className="font-medium text-red-600 font-poppins">
+                                        {formatCurrency(paymentSummary.remainingAmount)}
+                                      </span>
+                                    </div>
+                                  )}
+                                  <div className="flex justify-between items-center mt-1 pt-1 border-t border-blue-200">
+                                    <span className="text-xs text-blue-600 font-poppins">
+                                      Total Payments: {paymentSummary.paymentCount}
+                                    </span>
+                                    <span className="text-xs text-blue-600 font-poppins">
+                                      Status: {selectedTransaction?.status || 'N/A'}
+                                    </span>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="bg-gray-50 p-4 rounded-md text-center">
+                              <p className="text-gray-500 font-poppins text-sm">No payments recorded yet</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
                       {selectedTransaction.notes && (
                         <div>
                           <h4 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-3 font-poppins flex items-center">
@@ -866,6 +1102,28 @@ export default function AdminTransactions() {
                     </div>
 
                     <div className="mt-8 pt-6 border-t border-gray-100 flex gap-3">
+                      {(selectedTransaction.status === 'pending' || selectedTransaction.status === 'partial') && (
+                        <button
+                          onClick={() => {
+                            setShowTransactionDetails(false)
+                            handleRecordPayment({
+                              id: selectedTransaction.id,
+                              transactionId: selectedTransaction.transactionId,
+                              clientId: selectedTransaction.clientId,
+                              clientName: selectedTransaction.clientName,
+                              transactionDate: selectedTransaction.transactionDate,
+                              dueDate: selectedTransaction.dueDate,
+                              totalAmount: selectedTransaction.totalAmount,
+                              status: selectedTransaction.status,
+                              referenceNumber: selectedTransaction.referenceNumber
+                            })
+                          }}
+                          className="flex-1 bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 transition-colors font-poppins flex items-center justify-center gap-2"
+                        >
+                          <CreditCard className="w-4 h-4" />
+                          Record Payment
+                        </button>
+                      )}
                       <button
                         onClick={() => handleEditTransaction(selectedTransaction.transactionId)}
                         className="flex-1 bg-[#3A86FF] text-white px-4 py-2 rounded-md hover:bg-[#3A86FF]/90 transition-colors font-poppins flex items-center justify-center gap-2"
@@ -890,6 +1148,22 @@ export default function AdminTransactions() {
       </main>
 
       <BottomNavigation />
+
+      {/* Record Payment Modal */}
+      {showRecordPaymentModal && selectedTransactionForPayment && (
+        <RecordPaymentModal
+          isOpen={showRecordPaymentModal}
+          onClose={() => {
+            setShowRecordPaymentModal(false)
+            setSelectedTransactionForPayment(null)
+          }}
+          onSubmit={handleSubmitPayment}
+          transaction={selectedTransactionForPayment}
+          isSubmitting={recordingPayment}
+          existingPayments={transactionPayments}
+          paymentSummary={paymentSummary}
+        />
+      )}
 
       {/* Confirmation Modal */}
       <ConfirmationModal

@@ -66,29 +66,55 @@ export async function getClients() {
       return { success: false, error: "Authentication required" }
     }
 
+    // First, get all clients
     const clients = await sql`
-      SELECT 
-        c.*,
-        COALESCE(SUM(t.total_amount), 0) as total_spent
-      FROM 
-        clients c
-      LEFT JOIN 
-        transactions t ON c.id = t.client_id AND t.status = 'paid'
-      WHERE 
-        c.created_by = ${session.userId}
-      GROUP BY 
-        c.id
-      ORDER BY 
-        c.business_name ASC
+      SELECT * FROM clients 
+      WHERE created_by = ${session.userId}
+      ORDER BY business_name ASC
     `
+
+    // Get transaction payments sum for each client
+    const paymentSums = await sql`
+      SELECT 
+        t.client_id,
+        COALESCE(SUM(tp.amount), 0) as payment_total
+      FROM transaction_payments tp
+      JOIN transactions t ON tp.transaction_id = t.id
+      WHERE t.created_by = ${session.userId}
+      GROUP BY t.client_id
+    `
+
+    // Get paid transactions sum for each client
+    const paidTransactionSums = await sql`
+      SELECT 
+        client_id,
+        COALESCE(SUM(total_amount), 0) as paid_total
+      FROM transactions
+      WHERE created_by = ${session.userId} AND status = 'paid'
+      GROUP BY client_id
+    `
+
+    // Combine the results
+    const clientsWithTotalSpent = clients.map((client: any) => {
+      // Find payment sum for this client
+      const paymentSum = paymentSums.find((p: any) => p.client_id === client.id)?.payment_total || 0
+      
+      // Find paid transaction sum for this client
+      const paidSum = paidTransactionSums.find((p: any) => p.client_id === client.id)?.paid_total || 0
+      
+      // Calculate total spent
+      const totalSpent = Number(paymentSum) + Number(paidSum)
+
+      return {
+        ...client,
+        total_spent: totalSpent,
+        status: client.status === true,
+      }
+    })
 
     return {
       success: true,
-      clients: clients.map((client: any) => ({
-        ...client,
-        total_spent: Number(client.total_spent || 0),
-        status: client.status === true,
-      })),
+      clients: clientsWithTotalSpent,
     }
   } catch (error) {
     console.error("Error fetching clients:", error)

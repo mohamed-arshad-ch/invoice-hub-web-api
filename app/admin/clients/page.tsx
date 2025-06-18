@@ -22,6 +22,7 @@ import {
   Info,
   User,
   FileText,
+  History,
 } from "lucide-react"
 import DashboardHeader from "@/app/components/dashboard/header"
 import BottomNavigation from "@/app/components/dashboard/bottom-navigation"
@@ -71,6 +72,24 @@ type Transaction = {
   referenceNumber: string
 }
 
+// Payment type
+type Payment = {
+  id: number
+  transaction_id: number
+  amount: number
+  payment_date: string
+  payment_method?: string
+  reference_number?: string
+  notes?: string
+  created_by: number
+  created_at: string
+  updated_at: string
+  // Additional fields for client payment history
+  transactionId?: string
+  transactionDescription?: string
+  transactionAmount?: number
+}
+
 export default function AdminClients() {
   const router = useRouter()
   const [user, setUser] = useState<AuthUser | null>(null)
@@ -98,6 +117,11 @@ export default function AdminClients() {
   const [viewingTransactions, setViewingTransactions] = useState<number | null>(null)
   const [clientTransactions, setClientTransactions] = useState<Transaction[]>([])
   const [loadingTransactions, setLoadingTransactions] = useState(false)
+
+  // Payment history viewing state
+  const [viewingPaymentHistory, setViewingPaymentHistory] = useState<number | null>(null)
+  const [clientPaymentHistory, setClientPaymentHistory] = useState<Payment[]>([])
+  const [loadingPaymentHistory, setLoadingPaymentHistory] = useState(false)
 
   useEffect(() => {
     const initializeClients = async () => {
@@ -299,6 +323,68 @@ export default function AdminClients() {
     }
   }
 
+  const handleViewPaymentHistory = async (clientId: number) => {
+    setLoadingPaymentHistory(true)
+    setViewingPaymentHistory(clientId)
+
+    try {
+      // First get client transactions
+      const transactionsResponse = await apiPost('/api/clients/transactions', { 
+        clientId: clientId 
+      })
+
+      if (transactionsResponse.success) {
+        const transactions = transactionsResponse.data.transactions || []
+        const allPayments: Payment[] = []
+
+        // For each transaction, get its payment history
+        for (const transaction of transactions) {
+          try {
+            const paymentsResponse = await apiPost('/api/transactions/payments', {
+              action: 'get-payments',
+              transactionId: transaction.transactionId
+            })
+
+            if (paymentsResponse.success && paymentsResponse.data && paymentsResponse.data.data) {
+              const payments = paymentsResponse.data.data.payments || []
+              
+              // Add transaction context to each payment
+              payments.forEach((payment: any) => {
+                allPayments.push({
+                  ...payment,
+                  transactionId: transaction.transactionId,
+                  transactionDescription: transaction.description,
+                  transactionAmount: transaction.amount
+                })
+              })
+            }
+          } catch (error) {
+            console.error(`Error fetching payments for transaction ${transaction.transactionId}:`, error)
+          }
+        }
+
+        // Sort payments by date (newest first)
+        allPayments.sort((a, b) => new Date(b.payment_date).getTime() - new Date(a.payment_date).getTime())
+        setClientPaymentHistory(allPayments)
+      } else {
+        setToast({ 
+          message: transactionsResponse.error || "Failed to fetch payment history", 
+          type: "error" 
+        })
+        setClientPaymentHistory([])
+      }
+    } catch (error) {
+      console.error("Error fetching client payment history:", error)
+      setToast({ 
+        message: "An unexpected error occurred while fetching payment history", 
+        type: "error" 
+      })
+      setClientPaymentHistory([])
+    } finally {
+      setLoadingPaymentHistory(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -465,6 +551,13 @@ export default function AdminClients() {
                         title="View Transactions"
                       >
                         <FileText className="w-5 h-5" />
+                      </button>
+                      <button
+                        onClick={() => handleViewPaymentHistory(client.id)}
+                        className="p-1.5 text-gray-500 hover:text-[#06D6A0] transition-colors rounded-full hover:bg-[#06D6A0]/10"
+                        title="View Payment History"
+                      >
+                        <History className="w-5 h-5" />
                       </button>
                       <button
                         onClick={() => handleEditClient(client.id)}
@@ -790,6 +883,84 @@ export default function AdminClients() {
                         >
                           <Eye className="w-4 h-4" />
                           View Details
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Payment History Sidebar */}
+      {viewingPaymentHistory !== null && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-end">
+          <div className="bg-white w-full max-w-md h-full overflow-y-auto pb-20">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-xl font-bold text-gray-900 font-poppins">Payment History</h2>
+                <button
+                  onClick={() => setViewingPaymentHistory(null)}
+                  className="p-1 text-gray-500 hover:text-gray-700 transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {loadingPaymentHistory ? (
+                <div className="flex justify-center py-8">
+                  <div className="w-10 h-10 border-4 border-[#3A86FF] border-t-transparent rounded-full animate-spin"></div>
+                </div>
+              ) : clientPaymentHistory.length === 0 ? (
+                <div className="text-center py-8">
+                  <FileText className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+                  <p className="text-gray-500 font-poppins">No payment history found for this client.</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {clientPaymentHistory.map((payment) => (
+                    <div key={payment.id} className="bg-gray-50 p-4 rounded-lg">
+                      <div className="flex justify-between items-start mb-2">
+                        <div>
+                          <h3 className="font-medium text-gray-900 font-poppins">{payment.transactionId}</h3>
+                          <p className="text-sm text-gray-500 font-poppins">
+                            {new Date(payment.payment_date).toLocaleDateString()}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <span className="font-medium text-green-600 font-poppins">
+                            ₹{payment.amount.toLocaleString()}
+                          </span>
+                          <p className="text-xs text-gray-500 font-poppins">
+                            {payment.payment_method || 'N/A'}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-gray-500 font-poppins">
+                          {payment.transactionDescription || 'Payment'}
+                        </span>
+                        <span className="text-sm text-gray-600 font-poppins">
+                          From: ₹{(payment.transactionAmount || 0).toLocaleString()}
+                        </span>
+                      </div>
+                      {payment.notes && (
+                        <div className="mt-2 pt-2 border-t border-gray-200">
+                          <p className="text-xs text-gray-500 font-poppins">{payment.notes}</p>
+                        </div>
+                      )}
+                      <div className="mt-3 pt-3 border-t border-gray-200 flex justify-between items-center">
+                        <span className="text-xs text-gray-400 font-poppins">
+                          Ref: {payment.reference_number || 'N/A'}
+                        </span>
+                        <button
+                          onClick={() => router.push(`/admin/transactions/edit/${payment.transactionId}`)}
+                          className="text-[#3A86FF] text-sm font-poppins hover:underline flex items-center gap-1"
+                        >
+                          <Eye className="w-4 h-4" />
+                          View Transaction
                         </button>
                       </div>
                     </div>

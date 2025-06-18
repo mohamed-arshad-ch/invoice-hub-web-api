@@ -223,6 +223,26 @@ export const POST = withAuth(async (request: NextRequest, user) => {
             ${user.userId}
           )
         `
+
+        // Update client total_spent for paid transactions
+        await sql`
+          UPDATE clients 
+          SET total_spent = COALESCE(
+            (
+              SELECT SUM(tp.amount) 
+              FROM transaction_payments tp
+              JOIN transactions t ON tp.transaction_id = t.id
+              WHERE t.client_id = ${clientId}
+            ) + 
+            (
+              SELECT SUM(t.total_amount) 
+              FROM transactions t 
+              WHERE t.client_id = ${clientId} AND t.status = 'paid'
+            ), 
+            0
+          )
+          WHERE id = ${clientId}
+        `
       }
 
       // Commit transaction (includes both transaction and ledger entry)

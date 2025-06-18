@@ -263,7 +263,7 @@ async function recordTransactionPayment(body: any, userId: number) {
         newStatus = "partial"
       }
 
-            // Update transaction status if needed
+      // Update transaction status if needed
       if (newStatus !== transaction.status) {
         await sql`
           UPDATE transactions 
@@ -271,6 +271,27 @@ async function recordTransactionPayment(body: any, userId: number) {
           WHERE id = ${numericTransactionId}
         `
       }
+
+      // Update client total_spent when payment is recorded
+      // Calculate total from both transaction payments and paid transactions
+      await sql`
+        UPDATE clients 
+        SET total_spent = COALESCE(
+          (
+            SELECT SUM(tp.amount) 
+            FROM transaction_payments tp
+            JOIN transactions t ON tp.transaction_id = t.id
+            WHERE t.client_id = ${transaction.client_id}
+          ) + 
+          (
+            SELECT SUM(t.total_amount) 
+            FROM transactions t 
+            WHERE t.client_id = ${transaction.client_id} AND t.status = 'paid'
+          ), 
+          0
+        )
+        WHERE id = ${transaction.client_id}
+      `
 
       await sql`COMMIT`
 
@@ -332,7 +353,8 @@ async function updateTransactionPayment(paymentId: number, body: any, userId: nu
           tp.transaction_id,
           tp.amount as old_amount,
           t.created_by,
-          t.total_amount as transaction_amount
+          t.total_amount as transaction_amount,
+          t.client_id
         FROM transaction_payments tp
         JOIN transactions t ON tp.transaction_id = t.id
         WHERE tp.id = ${paymentId} AND t.created_by = ${userId}
@@ -386,6 +408,26 @@ async function updateTransactionPayment(paymentId: number, body: any, userId: nu
         WHERE reference_id = ${"TXN-PAY-" + paymentId} AND reference_type = 'transaction_payment'
       `
 
+      // Update client total_spent when payment is updated
+      await sql`
+        UPDATE clients 
+        SET total_spent = COALESCE(
+          (
+            SELECT SUM(tp.amount) 
+            FROM transaction_payments tp
+            JOIN transactions t ON tp.transaction_id = t.id
+            WHERE t.client_id = ${payment.client_id}
+          ) + 
+          (
+            SELECT SUM(t.total_amount) 
+            FROM transactions t 
+            WHERE t.client_id = ${payment.client_id} AND t.status = 'paid'
+          ), 
+          0
+        )
+        WHERE id = ${payment.client_id}
+      `
+
       await sql`COMMIT`
 
       return NextResponse.json({
@@ -418,9 +460,16 @@ async function deleteTransactionPayment(paymentId: number, userId: number) {
     await sql`BEGIN`
 
     try {
-      // Verify payment ownership
+      // Verify payment exists and get transaction info
       const paymentCheck = await sql`
-        SELECT tp.id, tp.transaction_id, t.created_by
+        SELECT 
+          tp.id,
+          tp.transaction_id,
+          tp.amount,
+          t.created_by,
+          t.transaction_id as txn_string_id,
+          t.total_amount,
+          t.client_id
         FROM transaction_payments tp
         JOIN transactions t ON tp.transaction_id = t.id
         WHERE tp.id = ${paymentId} AND t.created_by = ${userId}
@@ -443,6 +492,27 @@ async function deleteTransactionPayment(paymentId: number, userId: number) {
 
       // Delete payment
       await sql`DELETE FROM transaction_payments WHERE id = ${paymentId}`
+
+      // Update client total_spent when payment is deleted
+      const payment = paymentCheck[0]
+      await sql`
+        UPDATE clients 
+        SET total_spent = COALESCE(
+          (
+            SELECT SUM(tp.amount) 
+            FROM transaction_payments tp
+            JOIN transactions t ON tp.transaction_id = t.id
+            WHERE t.client_id = ${payment.client_id}
+          ) + 
+          (
+            SELECT SUM(t.total_amount) 
+            FROM transactions t 
+            WHERE t.client_id = ${payment.client_id} AND t.status = 'paid'
+          ), 
+          0
+        )
+        WHERE id = ${payment.client_id}
+      `
 
       await sql`COMMIT`
 

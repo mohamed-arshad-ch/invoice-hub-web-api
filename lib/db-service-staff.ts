@@ -17,6 +17,7 @@ export type Staff = {
   avatar: string
   role: "admin" | "support" | "finance"
   payment_rate: number
+  total_paid?: number
 }
 
 // Staff Payment type definition
@@ -33,19 +34,25 @@ export async function getAllStaff(): Promise<Staff[]> {
   try {
     const staff = await sql`
       SELECT 
-        id, 
-        name, 
-        email, 
-        position, 
-        join_date, 
-        status, 
-        avatar, 
-        role, 
-        payment_rate
-      FROM staff
-      ORDER BY name ASC
+        s.id, 
+        s.name, 
+        s.email, 
+        s.position, 
+        s.join_date, 
+        s.status, 
+        s.avatar, 
+        s.role, 
+        s.payment_rate,
+        COALESCE(SUM(sp.amount), 0) as total_paid
+      FROM staff s
+      LEFT JOIN staff_payments sp ON s.id = sp.staff_id
+      GROUP BY s.id, s.name, s.email, s.position, s.join_date, s.status, s.avatar, s.role, s.payment_rate
+      ORDER BY s.name ASC
     `
-    return staff as Staff[]
+    return staff.map((member: any) => ({
+      ...member,
+      total_paid: Number(member.total_paid || 0)
+    })) as Staff[]
   } catch (error) {
     console.error("Error fetching staff:", error)
     throw new Error("Failed to fetch staff")
@@ -178,21 +185,27 @@ export async function searchStaff(query: string): Promise<Staff[]> {
   try {
     const staff = await sql`
       SELECT 
-        id, 
-        name, 
-        email, 
-        position, 
-        join_date, 
-        status, 
-        avatar, 
-        role, 
-        payment_rate
-      FROM staff 
+        s.id, 
+        s.name, 
+        s.email, 
+        s.position, 
+        s.join_date, 
+        s.status, 
+        s.avatar, 
+        s.role, 
+        s.payment_rate,
+        COALESCE(SUM(sp.amount), 0) as total_paid
+      FROM staff s
+      LEFT JOIN staff_payments sp ON s.id = sp.staff_id
       WHERE 
-        name ILIKE ${"%" + query + "%"} OR email ILIKE ${"%" + query + "%"}
-      ORDER BY name ASC
+        s.name ILIKE ${"%" + query + "%"} OR s.email ILIKE ${"%" + query + "%"}
+      GROUP BY s.id, s.name, s.email, s.position, s.join_date, s.status, s.avatar, s.role, s.payment_rate
+      ORDER BY s.name ASC
     `
-    return staff as Staff[]
+    return staff.map((member: any) => ({
+      ...member,
+      total_paid: Number(member.total_paid || 0)
+    })) as Staff[]
   } catch (error) {
     console.error("Error searching staff:", error)
     throw new Error("Failed to search staff")

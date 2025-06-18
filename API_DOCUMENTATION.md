@@ -197,6 +197,12 @@ await logout()
 
 **Role Access:** Admin, Staff
 
+**Description:** Retrieves all clients with comprehensive financial information. The `total_spent` field is calculated using a two-query approach that combines:
+1. Sum of all individual payments from transaction_payments table
+2. Sum of all transaction amounts with 'paid' status
+
+This ensures accurate financial tracking regardless of payment method (individual payments vs. full transaction payments).
+
 **Response:**
 ```json
 {
@@ -215,6 +221,13 @@ await logout()
   ]
 }
 ```
+
+**Total Spent Calculation:**
+- **Individual Payments**: Sum of amounts from `transaction_payments` table for pending/partial transactions
+- **Paid Transactions**: Sum of `total_amount` from `transactions` table where status = 'paid'
+- **Final Amount**: `total_spent = payment_sum + paid_transaction_sum`
+
+**Note:** This calculation method prevents double-counting and ensures accurate financial reporting.
 
 ### 2. Create Client
 **Endpoint:** `POST /api/clients`
@@ -367,6 +380,108 @@ await logout()
   ]
 }
 ```
+
+### 8. Get Client Payment History
+**Endpoint:** `POST /api/clients/payments`
+
+**Headers:** `Authorization: Bearer <token>`
+
+**Role Access:** Admin, Staff
+
+**Description:** Retrieves comprehensive payment history for a specific client, including all payments made across all their transactions. This API aggregates payments from the transaction_payments table and provides detailed payment information with transaction context.
+
+**Request Body:**
+```json
+{
+  "clientId": 1
+}
+```
+
+**Success Response:**
+```json
+{
+  "success": true,
+  "payments": [
+    {
+      "id": 4,
+      "transaction_id": 65,
+      "amount": 1500.00,
+      "payment_date": "2024-06-17",
+      "payment_method": "UPI",
+      "reference_number": "UPI-REF-123456",
+      "notes": "Partial payment for invoice",
+      "created_by": 9,
+      "created_at": "2024-06-18T06:30:30.728Z",
+      "updated_at": "2024-06-18T06:30:30.728Z",
+      "transactionId": "INV-2024-1234",
+      "transactionDescription": "Web Development Service",
+      "transactionAmount": 4000.00
+    },
+    {
+      "id": 3,
+      "transaction_id": 65,
+      "amount": 2000.00,
+      "payment_date": "2024-06-15",
+      "payment_method": "bank_transfer",
+      "reference_number": "BANK-TXN-789012",
+      "notes": "Second installment payment",
+      "created_by": 9,
+      "created_at": "2024-06-18T06:22:01.677Z",
+      "updated_at": "2024-06-18T06:22:01.677Z",
+      "transactionId": "INV-2024-1235",
+      "transactionDescription": "Mobile App Development",
+      "transactionAmount": 8000.00
+    }
+  ],
+  "summary": {
+    "totalPayments": 3500.00,
+    "paymentCount": 2,
+    "averagePayment": 1750.00,
+    "paymentMethods": [
+      {
+        "method": "UPI",
+        "count": 1,
+        "total": 1500.00
+      },
+      {
+        "method": "bank_transfer", 
+        "count": 1,
+        "total": 2000.00
+      }
+    ],
+    "dateRange": {
+      "earliest": "2024-06-15",
+      "latest": "2024-06-17"
+    }
+  }
+}
+```
+
+**Error Response:**
+```json
+{
+  "success": false,
+  "error": "Client not found or no payments available"
+}
+```
+
+**Field Descriptions:**
+- `id`: Unique payment ID
+- `transaction_id`: Internal transaction ID (numeric)
+- `amount`: Payment amount
+- `payment_date`: Date when payment was made (YYYY-MM-DD)
+- `payment_method`: Payment method used (UPI, bank_transfer, cash, etc.)
+- `reference_number`: External reference number for the payment
+- `notes`: Additional notes about the payment
+- `transactionId`: Human-readable transaction ID (e.g., INV-2024-1234)
+- `transactionDescription`: Description of the transaction
+- `transactionAmount`: Total amount of the original transaction
+
+**Notes:**
+- Payments are sorted by payment date (newest first)
+- Only includes actual payments from transaction_payments table
+- Does not include full transaction amounts for "paid" status transactions
+- Provides comprehensive payment analytics in the summary section
 
 ## Staff APIs
 
@@ -780,7 +895,6 @@ await logout()
   }
 }
 ```
-
 ```json
 {
   "success": false,
@@ -1354,13 +1468,14 @@ This comprehensive API structure provides full CRUD operations for all major ent
 - `POST /api/auth/change-password` - Change user password
 
 **Client Management APIs:**
-- `GET /api/clients` - Get all clients
+- `GET /api/clients` - Get all clients (with comprehensive total_spent calculation)
 - `POST /api/clients` - Create new client
 - `POST /api/clients/get-by-id` - Get client by ID
 - `POST /api/clients/update` - Update client
 - `POST /api/clients/delete` - Delete client
 - `POST /api/clients/create-portal-access` - Create client portal access
 - `POST /api/clients/transactions` - Get client transactions
+- `POST /api/clients/payments` - Get client payment history with analytics
 
 **Staff Management APIs:**
 - `GET /api/staff` - Get all staff

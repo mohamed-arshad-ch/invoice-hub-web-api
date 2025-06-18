@@ -637,9 +637,15 @@ await logout()
 ### 6. Transaction Payment Management
 **Endpoint:** `POST /api/transactions/payments`
 
-**Description:** Manage payments for pending transactions. This API allows recording partial or full payments against pending transactions, automatically updating transaction status and creating corresponding ledger entries.
+**Description:** Comprehensive payment management system for transactions. This API handles recording, updating, retrieving, and deleting payments for transactions. It automatically manages transaction status updates, creates corresponding ledger entries, and maintains payment history.
 
-#### Get Payments for Transaction
+---
+
+#### 6.1 Get Payments for Transaction
+**Action:** `get-payments`
+
+**Description:** Retrieves all payments associated with a specific transaction, including payment summary and remaining balance calculations.
+
 **Request Body:**
 ```json
 {
@@ -648,31 +654,60 @@ await logout()
 }
 ```
 
-**Response:**
+**Success Response:**
 ```json
 {
   "success": true,
-  "payments": [
-    {
-      "id": 1,
-      "transaction_id": 1,
-      "amount": 2000.00,
-      "payment_date": "2024-01-20",
-      "payment_method": "bank_transfer",
-      "reference_number": "TXN-PAY-001",
-      "notes": "Partial payment received",
-      "created_by": 1,
-      "created_at": "2024-01-20T10:30:00Z",
-      "updated_at": "2024-01-20T10:30:00Z"
-    }
-  ],
-  "totalPaid": 2000.00,
-  "remainingAmount": 8000.00,
-  "transactionTotal": 10000.00
+  "data": {
+    "success": true,
+    "payments": [
+      {
+        "id": 4,
+        "transaction_id": 65,
+        "amount": 1000,
+        "payment_date": "2025-06-17",
+        "payment_method": "UPI",
+        "reference_number": "UPI-REF-123456",
+        "notes": "First installment payment",
+        "created_by": 9,
+        "created_at": "2025-06-18T06:30:30.728Z",
+        "updated_at": "2025-06-18T06:30:30.728Z"
+      },
+      {
+        "id": 3,
+        "transaction_id": 65,
+        "amount": 1000,
+        "payment_date": "2025-06-17",
+        "payment_method": "UPI",
+        "reference_number": "UPI-REF-789012",
+        "notes": "Second installment payment",
+        "created_by": 9,
+        "created_at": "2025-06-18T06:22:01.677Z",
+        "updated_at": "2025-06-18T06:22:01.677Z"
+      }
+    ],
+    "totalPaid": 2000,
+    "remainingAmount": 2000,
+    "transactionTotal": 4000
+  }
 }
 ```
 
-#### Record Payment
+**Error Response:**
+```json
+{
+  "success": false,
+  "error": "Transaction not found"
+}
+```
+
+---
+
+#### 6.2 Record Payment
+**Action:** `record-payment`
+
+**Description:** Records a new payment against a transaction. Automatically updates transaction status based on payment amount, creates ledger entries, and handles partial/full payment logic.
+
 **Request Body:**
 ```json
 {
@@ -680,100 +715,172 @@ await logout()
   "transactionId": "INV-2024-1234",
   "amount": 2000.00,
   "paymentDate": "2024-01-20",
-  "paymentMethod": "bank_transfer",
-  "referenceNumber": "TXN-PAY-001",
-  "notes": "Partial payment received"
+  "paymentMethod": "UPI",
+  "referenceNumber": "UPI-REF-123456",
+  "notes": "Partial payment received via UPI"
 }
 ```
 
-**Response:**
+**Field Descriptions:**
+- `transactionId` (string, required): Transaction identifier
+- `amount` (number, required): Payment amount (must be > 0)
+- `paymentDate` (string, required): Payment date in YYYY-MM-DD format
+- `paymentMethod` (string, optional): Payment method (see supported methods below)
+- `referenceNumber` (string, optional): External reference number
+- `notes` (string, optional): Additional notes about the payment
+
+**Success Response:**
 ```json
 {
   "success": true,
-  "payment": {
-    "id": 1,
-    "transaction_id": 1,
-    "amount": 2000.00,
-    "payment_date": "2024-01-20",
-    "payment_method": "bank_transfer",
-    "reference_number": "TXN-PAY-001",
-    "notes": "Partial payment received",
-    "created_by": 1,
-    "created_at": "2024-01-20T10:30:00Z"
-  },
-  "ledgerEntry": {
-    "id": 15,
-    "entry_date": "2024-01-20",
-    "entry_type": "income",
-    "amount": 2000.00,
-    "description": "Payment received for INV-2024-1234",
-    "reference_id": "TXN-PAY-1",
-    "reference_type": "transaction_payment"
-  },
-  "transactionStatus": "partial",
-  "totalPaid": 2000.00,
-  "remainingAmount": 8000.00,
-  "message": "Payment recorded successfully and ledger entry created"
+  "data": {
+    "success": true,
+    "message": "Payment recorded successfully",
+    "payment": {
+      "id": 5,
+      "transaction_id": 65,
+      "amount": 2000.00,
+      "payment_date": "2024-01-20",
+      "payment_method": "UPI",
+      "reference_number": "UPI-REF-123456",
+      "notes": "Partial payment received via UPI",
+      "created_by": 9,
+      "created_at": "2024-01-20T10:30:00Z",
+      "updated_at": "2024-01-20T10:30:00Z"
+    },
+    "ledgerEntry": {
+      "id": 15,
+      "entry_date": "2024-01-20",
+      "entry_type": "income",
+      "amount": 2000.00,
+      "description": "Payment received for INV-2024-1234 via UPI",
+      "reference_id": "TXN-PAY-5",
+      "reference_type": "transaction_payment",
+      "created_by": 9,
+      "created_at": "2024-01-20T10:30:00Z"
+    },
+    "transactionUpdate": {
+      "previousStatus": "pending",
+      "newStatus": "partial",
+      "totalPaid": 2000.00,
+      "remainingAmount": 2000.00,
+      "transactionTotal": 4000.00
+    }
+  }
 }
 ```
 
-#### Update Payment
+**Error Responses:**
+```json
+{
+  "success": false,
+  "data": {
+    "success": false,
+    "error": "Payment amount exceeds remaining balance"
+  }
+}
+```
+
+```json
+{
+  "success": false,
+  "data": {
+    "success": false,
+    "error": "Transaction not found or not in pending/partial status"
+  }
+}
+```
+
+---
+
+#### 6.3 Update Payment
+**Action:** `update-payment`
+
+**Description:** Updates an existing payment record. Recalculates transaction totals and updates ledger entries accordingly.
+
 **Request Body:**
 ```json
 {
   "action": "update-payment",
-  "paymentId": 1,
+  "paymentId": 5,
   "amount": 2500.00,
   "paymentDate": "2024-01-20",
-  "paymentMethod": "credit_card",
-  "referenceNumber": "TXN-PAY-001-UPDATED",
-  "notes": "Updated payment amount"
+  "paymentMethod": "bank_transfer",
+  "referenceNumber": "BANK-TXN-789012",
+  "notes": "Updated payment method and amount"
 }
 ```
 
-**Response:**
+**Success Response:**
 ```json
 {
   "success": true,
-  "payment": {
-    "id": 1,
-    "transaction_id": 1,
-    "amount": 2500.00,
-    "payment_date": "2024-01-20",
-    "payment_method": "credit_card",
-    "reference_number": "TXN-PAY-001-UPDATED",
-    "notes": "Updated payment amount",
-    "created_by": 1,
-    "updated_at": "2024-01-20T15:45:00Z"
-  },
-  "transactionStatus": "partial",
-  "totalPaid": 2500.00,
-  "remainingAmount": 7500.00,
-  "message": "Payment updated successfully"
+  "data": {
+    "success": true,
+    "message": "Payment updated successfully",
+    "payment": {
+      "id": 5,
+      "transaction_id": 65,
+      "amount": 2500.00,
+      "payment_date": "2024-01-20",
+      "payment_method": "bank_transfer",
+      "reference_number": "BANK-TXN-789012",
+      "notes": "Updated payment method and amount",
+      "created_by": 9,
+      "updated_at": "2024-01-20T15:45:00Z"
+    },
+    "transactionUpdate": {
+      "status": "partial",
+      "totalPaid": 2500.00,
+      "remainingAmount": 1500.00,
+      "transactionTotal": 4000.00
+    }
+  }
 }
 ```
 
-#### Delete Payment
+---
+
+#### 6.4 Delete Payment
+**Action:** `delete-payment`
+
+**Description:** Deletes a payment record and removes associated ledger entries. Recalculates transaction status and totals.
+
 **Request Body:**
 ```json
 {
   "action": "delete-payment",
-  "paymentId": 1
+  "paymentId": 5
 }
 ```
 
-**Response:**
+**Success Response:**
 ```json
 {
   "success": true,
-  "transactionStatus": "pending",
-  "totalPaid": 0.00,
-  "remainingAmount": 10000.00,
-  "message": "Payment deleted successfully and ledger entry removed"
+  "data": {
+    "success": true,
+    "message": "Payment deleted successfully",
+    "transactionUpdate": {
+      "transactionId": "INV-2024-1234",
+      "previousStatus": "partial",
+      "newStatus": "pending",
+      "totalPaid": 0.00,
+      "remainingAmount": 4000.00,
+      "transactionTotal": 4000.00
+    },
+    "ledgerEntryRemoved": true
+  }
 }
 ```
 
-#### Get Payment Summary
+---
+
+#### 6.5 Get Payment Summary
+**Action:** `get-payment-summary`
+
+**Description:** Retrieves a comprehensive summary of all payments for a transaction, including payment statistics and status information.
+
 **Request Body:**
 ```json
 {
@@ -782,50 +889,182 @@ await logout()
 }
 ```
 
-**Response:**
+**Success Response:**
 ```json
 {
   "success": true,
-  "summary": {
-    "transactionId": "INV-2024-1234",
-    "transactionTotal": 10000.00,
-    "totalPaid": 6000.00,
-    "remainingAmount": 4000.00,
-    "paymentCount": 3,
-    "status": "partial",
-    "lastPaymentDate": "2024-01-25",
-    "payments": [
-      {
-        "id": 1,
-        "amount": 2000.00,
-        "payment_date": "2024-01-20",
-        "payment_method": "bank_transfer"
-      },
-      {
-        "id": 2,
-        "amount": 2500.00,
-        "payment_date": "2024-01-22",
-        "payment_method": "credit_card"
-      },
-      {
-        "id": 3,
-        "amount": 1500.00,
-        "payment_date": "2024-01-25",
-        "payment_method": "cash"
-      }
-    ]
+  "data": {
+    "success": true,
+    "summary": {
+      "transactionId": "INV-2024-1234",
+      "transactionTotal": 4000.00,
+      "totalPaid": 3000.00,
+      "remainingAmount": 1000.00,
+      "paymentCount": 3,
+      "status": "partial",
+      "firstPaymentDate": "2024-01-15",
+      "lastPaymentDate": "2024-01-25",
+      "averagePaymentAmount": 1000.00,
+      "paymentMethods": [
+        {
+          "method": "UPI",
+          "count": 2,
+          "totalAmount": 2000.00
+        },
+        {
+          "method": "bank_transfer",
+          "count": 1,
+          "totalAmount": 1000.00
+        }
+      ],
+      "recentPayments": [
+        {
+          "id": 7,
+          "amount": 1000.00,
+          "payment_date": "2024-01-25",
+          "payment_method": "bank_transfer",
+          "reference_number": "BANK-789"
+        },
+        {
+          "id": 6,
+          "amount": 1000.00,
+          "payment_date": "2024-01-20",
+          "payment_method": "UPI",
+          "reference_number": "UPI-456"
+        }
+      ]
+    }
   }
 }
 ```
 
-**Payment Methods Supported:**
-- `cash`
-- `credit_card`
-- `debit_card`
-- `bank_transfer`
-- `cheque`
-- `online_payment`
-- `other`
+---
+
+#### 6.6 Bulk Payment Operations
+**Action:** `bulk-operations`
+
+**Description:** Perform multiple payment operations in a single request for efficiency.
+
+**Request Body:**
+```json
+{
+  "action": "bulk-operations",
+  "operations": [
+    {
+      "type": "record-payment",
+      "transactionId": "INV-2024-1234",
+      "amount": 1000.00,
+      "paymentDate": "2024-01-20",
+      "paymentMethod": "cash"
+    },
+    {
+      "type": "record-payment",
+      "transactionId": "INV-2024-1235",
+      "amount": 2000.00,
+      "paymentDate": "2024-01-20",
+      "paymentMethod": "UPI"
+    }
+  ]
+}
+```
+
+**Success Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "success": true,
+    "results": [
+      {
+        "operation": 1,
+        "success": true,
+        "paymentId": 8,
+        "transactionId": "INV-2024-1234"
+      },
+      {
+        "operation": 2,
+        "success": true,
+        "paymentId": 9,
+        "transactionId": "INV-2024-1235"
+      }
+    ],
+    "summary": {
+      "totalOperations": 2,
+      "successful": 2,
+      "failed": 0,
+      "totalAmount": 3000.00
+    }
+  }
+}
+```
+
+---
+
+#### Payment Status Transitions
+
+**Automatic Status Updates:**
+- `pending` → `partial` (when first payment < total amount)
+- `pending` → `paid` (when payment = total amount)
+- `partial` → `paid` (when total payments = total amount)
+- `partial` → `pending` (when all payments are deleted)
+- `paid` → `partial` (when payment is deleted and remaining payments < total)
+
+---
+
+#### Supported Payment Methods
+
+| Method | Code | Description |
+|--------|------|-------------|
+| Cash | `cash` | Physical cash payment |
+| Credit Card | `credit_card` | Credit card payment |
+| Debit Card | `debit_card` | Debit card payment |
+| Bank Transfer | `bank_transfer` | Direct bank transfer |
+| UPI | `UPI` | Unified Payments Interface |
+| Cheque | `cheque` | Cheque payment |
+| Online Payment | `online_payment` | Generic online payment |
+| Wire Transfer | `wire_transfer` | Wire transfer |
+| Mobile Payment | `mobile_payment` | Mobile wallet payment |
+| Other | `other` | Other payment methods |
+
+---
+
+#### Business Logic & Validation Rules
+
+1. **Payment Amount Validation:**
+   - Must be greater than 0
+   - Cannot exceed remaining transaction amount
+   - Supports decimal precision up to 2 places
+
+2. **Payment Date Validation:**
+   - Cannot be future dated beyond current date
+   - Must be in valid date format (YYYY-MM-DD)
+
+3. **Transaction Status Logic:**
+   - Payments can only be recorded for `pending` or `partial` transactions
+   - `paid` transactions cannot receive additional payments
+   - `cancelled` transactions cannot receive payments
+
+4. **Ledger Integration:**
+   - Every payment automatically creates an income ledger entry
+   - Ledger entries are linked to payments via reference_id
+   - Deleting payments removes corresponding ledger entries
+
+5. **Concurrency Handling:**
+   - Database transactions ensure data consistency
+   - Prevents duplicate payments during concurrent operations
+
+---
+
+#### Error Codes & Messages
+
+| Code | Message | Description |
+|------|---------|-------------|
+| 400 | Invalid payment amount | Amount is 0, negative, or exceeds remaining balance |
+| 404 | Transaction not found | Transaction ID doesn't exist |
+| 403 | Payment not allowed | Transaction status doesn't allow payments |
+| 409 | Duplicate payment | Payment with same reference already exists |
+| 422 | Validation failed | Required fields missing or invalid format |
+| 500 | Database error | Internal server error during payment processing |
 
 **Transaction Status Updates:**
 - `pending` → `partial` (when first payment is recorded)

@@ -22,10 +22,25 @@ export type Product = {
 
 export async function getTotalRevenue(): Promise<number> {
   try {
-    const result = await sql`
-      SELECT COALESCE(SUM(total_amount), 0) AS total FROM transactions WHERE status = 'paid'
+    // Get total from transaction payments
+    const paymentTotal = await sql`
+      SELECT COALESCE(SUM(tp.amount), 0) AS payment_total
+      FROM transaction_payments tp
     `
-    return result[0].total as number
+
+    // Get total from paid transactions
+    const paidTransactionTotal = await sql`
+      SELECT COALESCE(SUM(total_amount), 0) AS paid_total
+      FROM transactions 
+      WHERE status = 'paid'
+    `
+
+    // Combine both totals
+    const totalFromPayments = Number(paymentTotal[0].payment_total || 0)
+    const totalFromPaidTransactions = Number(paidTransactionTotal[0].paid_total || 0)
+    const totalRevenue = totalFromPayments + totalFromPaidTransactions
+
+    return totalRevenue
   } catch (error) {
     console.error("Error fetching total revenue:", error)
     return 0

@@ -62,3 +62,110 @@ COMMENT ON COLUMN transaction_payments.created_by IS 'ID of the user who recorde
 
 -- This update allows the payment recording system to create ledger entries with 
 -- reference_type = 'transaction_payment' when recording payments against transactions. 
+
+-- ===================================================================
+-- QUICK TRANSACTION TEMPLATES TABLE
+-- ===================================================================
+-- This table stores templates for quick transaction creation
+-- Allows users to create predefined transaction templates for faster invoicing
+
+CREATE TABLE quick_transaction_templates (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    client_id INTEGER REFERENCES clients(id) ON DELETE CASCADE,
+    product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
+    quantity DECIMAL(10, 2) DEFAULT 1,
+    unit_price DECIMAL(10, 2) NOT NULL CHECK (unit_price >= 0),
+    tax_rate DECIMAL(5, 2) DEFAULT 0 CHECK (tax_rate >= 0 AND tax_rate <= 100),
+    payment_method VARCHAR(50) DEFAULT 'Bank Transfer',
+    notes TEXT,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_by INTEGER NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    -- Add indexes for performance
+    INDEX idx_quick_transaction_templates_client_id (client_id),
+    INDEX idx_quick_transaction_templates_product_id (product_id),
+    INDEX idx_quick_transaction_templates_created_by (created_by),
+    INDEX idx_quick_transaction_templates_is_active (is_active)
+);
+
+-- Add trigger to update updated_at timestamp
+CREATE OR REPLACE FUNCTION update_quick_transaction_templates_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_update_quick_transaction_templates_updated_at
+    BEFORE UPDATE ON quick_transaction_templates
+    FOR EACH ROW
+    EXECUTE FUNCTION update_quick_transaction_templates_updated_at();
+
+-- Add comments for documentation
+COMMENT ON TABLE quick_transaction_templates IS 'Stores templates for quick transaction creation to speed up invoicing process';
+COMMENT ON COLUMN quick_transaction_templates.name IS 'Display name for the quick transaction template';
+COMMENT ON COLUMN quick_transaction_templates.description IS 'Description of the transaction template';
+COMMENT ON COLUMN quick_transaction_templates.client_id IS 'Reference to the client for this template';
+COMMENT ON COLUMN quick_transaction_templates.product_id IS 'Reference to the product/service for this template';
+COMMENT ON COLUMN quick_transaction_templates.quantity IS 'Default quantity for this template';
+COMMENT ON COLUMN quick_transaction_templates.unit_price IS 'Unit price for the product/service';
+COMMENT ON COLUMN quick_transaction_templates.tax_rate IS 'Tax rate percentage (0-100)';
+COMMENT ON COLUMN quick_transaction_templates.payment_method IS 'Default payment method for transactions created from this template';
+COMMENT ON COLUMN quick_transaction_templates.notes IS 'Default notes for transactions created from this template';
+COMMENT ON COLUMN quick_transaction_templates.is_active IS 'Whether this template is active and available for use';
+COMMENT ON COLUMN quick_transaction_templates.created_by IS 'ID of the user who created this template';
+
+-- ===================================================================
+-- QUICK STAFF PAYMENT TEMPLATES TABLE
+-- ===================================================================
+-- This table stores templates for quick staff payment creation
+-- Allows users to create predefined staff payment templates for faster payroll processing
+
+CREATE TABLE quick_staff_payment_templates (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    staff_id INTEGER NOT NULL REFERENCES staff(id) ON DELETE CASCADE,
+    amount DECIMAL(10, 2) NOT NULL CHECK (amount > 0),
+    payment_method VARCHAR(50) DEFAULT 'Bank Transfer',
+    notes TEXT,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_by INTEGER NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    -- Add indexes for performance
+    INDEX idx_quick_staff_payment_templates_staff_id (staff_id),
+    INDEX idx_quick_staff_payment_templates_created_by (created_by),
+    INDEX idx_quick_staff_payment_templates_is_active (is_active)
+);
+
+-- Add trigger to update updated_at timestamp
+CREATE OR REPLACE FUNCTION update_quick_staff_payment_templates_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_update_quick_staff_payment_templates_updated_at
+    BEFORE UPDATE ON quick_staff_payment_templates
+    FOR EACH ROW
+    EXECUTE FUNCTION update_quick_staff_payment_templates_updated_at();
+
+-- Add comments for documentation
+COMMENT ON TABLE quick_staff_payment_templates IS 'Stores templates for quick staff payment creation to speed up payroll processing';
+COMMENT ON COLUMN quick_staff_payment_templates.name IS 'Display name for the quick staff payment template';
+COMMENT ON COLUMN quick_staff_payment_templates.description IS 'Description of the staff payment template';
+COMMENT ON COLUMN quick_staff_payment_templates.staff_id IS 'Reference to the staff member for this template';
+COMMENT ON COLUMN quick_staff_payment_templates.amount IS 'Payment amount for this template';
+COMMENT ON COLUMN quick_staff_payment_templates.payment_method IS 'Default payment method for payments created from this template';
+COMMENT ON COLUMN quick_staff_payment_templates.notes IS 'Default notes for payments created from this template';
+COMMENT ON COLUMN quick_staff_payment_templates.is_active IS 'Whether this template is active and available for use';
+COMMENT ON COLUMN quick_staff_payment_templates.created_by IS 'ID of the user who created this template'; 

@@ -1454,6 +1454,276 @@ curl -X POST /api/ledger \
 }
 ```
 
+## Quick Transaction Template APIs
+
+### 1. Get All Quick Transaction Templates
+**Endpoint:** `GET /api/quick-transactions`
+
+**Headers:** `Authorization: Bearer <token>`
+
+**Role Access:** Admin, Staff
+
+**Description:** Retrieves all active quick transaction templates for the authenticated user.
+
+**Response:**
+```json
+{
+  "success": true,
+  "templates": [
+    {
+      "id": 1,
+      "name": "Monthly Web Hosting",
+      "description": "Monthly web hosting service",
+      "client_id": 5,
+      "product_id": 2,
+      "quantity": 1,
+      "unit_price": 99.99,
+      "tax_rate": 10,
+      "payment_method": "Bank Transfer",
+      "notes": "Monthly recurring service",
+      "is_active": true,
+      "created_by": 1,
+      "created_at": "2024-01-01T00:00:00.000Z",
+      "updated_at": "2024-01-01T00:00:00.000Z",
+      "client_name": "ABC Company",
+      "product_name": "Web Hosting Service"
+    }
+  ]
+}
+```
+
+### 2. Manage Quick Transaction Templates
+**Endpoint:** `POST /api/quick-transactions`
+
+**Headers:** `Authorization: Bearer <token>`
+
+**Role Access:** Admin, Staff
+
+#### Create Template
+**Request Body:**
+```json
+{
+  "action": "create-template",
+  "name": "Monthly Web Hosting",
+  "description": "Monthly web hosting service",
+  "client_id": 5,
+  "product_id": 2,
+  "quantity": 1,
+  "unit_price": 99.99,
+  "tax_rate": 10,
+  "payment_method": "Bank Transfer",
+  "notes": "Monthly recurring service"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "template_id": 1,
+  "message": "Quick transaction template created successfully"
+}
+```
+
+#### Update Template
+**Request Body:**
+```json
+{
+  "action": "update-template",
+  "template_id": 1,
+  "name": "Updated Monthly Web Hosting",
+  "description": "Updated monthly web hosting service",
+  "client_id": 5,
+  "product_id": 2,
+  "quantity": 1,
+  "unit_price": 109.99,
+  "tax_rate": 10,
+  "payment_method": "Bank Transfer",
+  "notes": "Updated monthly recurring service",
+  "is_active": true
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Quick transaction template updated successfully"
+}
+```
+
+#### Delete Template
+**Request Body:**
+```json
+{
+  "action": "delete-template",
+  "template_id": 1
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Quick transaction template deleted successfully"
+}
+```
+
+#### Execute Template (Create Transaction)
+**Request Body:**
+```json
+{
+  "action": "execute-template",
+  "template_id": 1
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "transaction_id": "INV-2024-1234",
+  "message": "Quick transaction created successfully"
+}
+```
+
+**Description:** Executing a template will:
+- Create a new transaction with status "paid"
+- Generate a unique transaction ID (format: INV-YYYY-XXXX)
+- Create transaction items based on template data
+- Add income entry to ledger
+- Update client's total_spent amount
+- Set due date to 30 days from creation
+
+## Quick Staff Payment Template APIs
+
+### 1. Get All Quick Staff Payment Templates
+**Endpoint:** `GET /api/quick-staff-payments`
+
+**Headers:** `Authorization: Bearer <token>`
+
+**Role Access:** Admin, Staff
+
+**Description:** Retrieves all active quick staff payment templates for the authenticated user.
+
+**Response:**
+```json
+{
+  "success": true,
+  "templates": [
+    {
+      "id": 1,
+      "name": "Monthly Salary - John Doe",
+      "description": "Monthly salary payment",
+      "staff_id": 3,
+      "amount": 5000,
+      "payment_method": "Bank Transfer",
+      "notes": "Monthly salary payment",
+      "is_active": true,
+      "created_by": 1,
+      "created_at": "2024-01-01T00:00:00.000Z",
+      "updated_at": "2024-01-01T00:00:00.000Z",
+      "staff_name": "John Doe"
+    }
+  ]
+}
+```
+
+### 2. Manage Quick Staff Payment Templates
+**Endpoint:** `POST /api/quick-staff-payments`
+
+**Headers:** `Authorization: Bearer <token>`
+
+**Role Access:** Admin, Staff
+
+#### Create Template
+**Request Body:**
+```json
+{
+  "action": "create-template",
+  "name": "Monthly Salary - John Doe",
+  "description": "Monthly salary payment",
+  "staff_id": 3,
+  "amount": 5000,
+  "payment_method": "Bank Transfer",
+  "notes": "Monthly salary payment"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "template_id": 1,
+  "message": "Quick staff payment template created successfully"
+}
+```
+
+#### Update Template
+**Request Body:**
+```json
+{
+  "action": "update-template",
+  "template_id": 1,
+  "name": "Updated Monthly Salary - John Doe",
+  "description": "Updated monthly salary payment",
+  "staff_id": 3,
+  "amount": 5500,
+  "payment_method": "Bank Transfer",
+  "notes": "Updated monthly salary payment",
+  "is_active": true
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Quick staff payment template updated successfully"
+}
+```
+
+#### Delete Template
+**Request Body:**
+```json
+{
+  "action": "delete-template",
+  "template_id": 1
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Quick staff payment template deleted successfully"
+}
+```
+
+#### Execute Template (Create Staff Payment)
+**Request Body:**
+```json
+{
+  "action": "execute-template",
+  "template_id": 1
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "payment_id": 15,
+  "message": "Quick staff payment created successfully"
+}
+```
+
+**Description:** Executing a staff payment template will:
+- Create a new staff payment record
+- Add expense entry to ledger
+- Update staff's total_received amount
+- Use current date as payment date
+
 ## API Summary
 
 This comprehensive API structure provides full CRUD operations for all major entities in the Invoice Hub system while maintaining security through proper authentication and authorization.
@@ -1513,4 +1783,12 @@ This comprehensive API structure provides full CRUD operations for all major ent
 - `GET /api/dashboard` - Get dashboard statistics
 
 **Invoice APIs:**
-- `POST /api/invoices` - Generate invoices (single/weekly) 
+- `POST /api/invoices` - Generate invoices (single/weekly)
+
+**Quick Transaction Template APIs:**
+- `GET /api/quick-transactions` - Get all quick transaction templates
+- `POST /api/quick-transactions` - Manage quick transaction templates (create/update/delete/execute)
+
+**Quick Staff Payment Template APIs:**
+- `GET /api/quick-staff-payments` - Get all quick staff payment templates
+- `POST /api/quick-staff-payments` - Manage quick staff payment templates (create/update/delete/execute) 

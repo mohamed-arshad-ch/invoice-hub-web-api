@@ -3,9 +3,11 @@
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
-import { ArrowUpRight, DollarSign, FileText, TrendingUp, User, Users, BookOpen } from "lucide-react"
+import { ArrowUpRight, DollarSign, FileText, TrendingUp, User, Users, BookOpen, Zap, MoreHorizontal } from "lucide-react"
 import DashboardHeader from "@/app/components/dashboard/header"
 import BottomNavigation from "@/app/components/dashboard/bottom-navigation"
+import QuickTransactionModal from "@/app/components/dashboard/quick-transaction-modal"
+import QuickStaffPaymentModal from "@/app/components/dashboard/quick-staff-payment-modal"
 import { Chart, registerables } from "chart.js"
 
 // Import the currency utility
@@ -39,6 +41,9 @@ export default function AdminDashboard() {
     pendingInvoiceCount: 0,
     totalStaffCount: 0
   })
+  const [showQuickTransactionModal, setShowQuickTransactionModal] = useState(false)
+  const [showQuickStaffPaymentModal, setShowQuickStaffPaymentModal] = useState(false)
+  const [showMoreMenu, setShowMoreMenu] = useState(false)
 
   useEffect(() => {
     const initializeDashboard = async () => {
@@ -73,6 +78,20 @@ export default function AdminDashboard() {
     initializeDashboard()
   }, [router])
 
+  // Close more menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (showMoreMenu) {
+        setShowMoreMenu(false)
+      }
+    }
+
+    if (showMoreMenu) {
+      document.addEventListener('click', handleClickOutside)
+      return () => document.removeEventListener('click', handleClickOutside)
+    }
+  }, [showMoreMenu])
+
   // Show loading spinner while checking authentication and fetching data
   if (loading) {
     return (
@@ -92,11 +111,67 @@ export default function AdminDashboard() {
       <DashboardHeader />
 
       <main className="max-w-screen-xl mx-auto px-4 py-6">
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold text-gray-900 font-poppins">Dashboard</h1>
-          <p className="text-gray-600 font-poppins">
-            Welcome back, {user.firstName} {user.lastName}
-          </p>
+        <div className="flex justify-between items-center mb-6">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 font-poppins">Dashboard</h1>
+            <p className="text-gray-600 font-poppins">
+              Welcome back, {user.firstName} {user.lastName}
+            </p>
+          </div>
+          
+          {/* Quick Actions */}
+          <div className="flex items-center space-x-3">
+            <button
+              onClick={() => setShowQuickTransactionModal(true)}
+              className="bg-[#3A86FF] text-white px-4 py-2 rounded-lg font-poppins flex items-center hover:bg-blue-600 transition-colors"
+            >
+              <Zap className="w-4 h-4 mr-2" />
+              Quick Transaction
+            </button>
+            
+            <button
+              onClick={() => setShowQuickStaffPaymentModal(true)}
+              className="bg-[#8338EC] text-white px-4 py-2 rounded-lg font-poppins flex items-center hover:bg-purple-600 transition-colors"
+            >
+              <Zap className="w-4 h-4 mr-2" />
+              Quick Payment
+            </button>
+
+            {/* More Menu */}
+            <div className="relative">
+              <button
+                onClick={() => setShowMoreMenu(!showMoreMenu)}
+                className="bg-gray-100 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                <MoreHorizontal className="w-5 h-5" />
+              </button>
+              
+              {showMoreMenu && (
+                <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-10">
+                  <button
+                    onClick={() => {
+                      setShowQuickTransactionModal(true)
+                      setShowMoreMenu(false)
+                    }}
+                    className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center"
+                  >
+                    <FileText className="w-4 h-4 mr-3" />
+                    Manage Quick Transactions
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowQuickStaffPaymentModal(true)
+                      setShowMoreMenu(false)
+                    }}
+                    className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center"
+                  >
+                    <Users className="w-4 h-4 mr-3" />
+                    Manage Quick Staff Payments
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Stats Cards */}
@@ -218,6 +293,46 @@ export default function AdminDashboard() {
       </main>
 
       <BottomNavigation />
+
+      {/* Quick Transaction Modal */}
+      <QuickTransactionModal
+        isOpen={showQuickTransactionModal}
+        onClose={() => setShowQuickTransactionModal(false)}
+        onSuccess={() => {
+          // Refresh dashboard stats after successful transaction
+          const initializeDashboard = async () => {
+            try {
+              const dashboardResponse = await apiGet('/api/dashboard')
+              if (dashboardResponse.success) {
+                setStats(dashboardResponse.data.stats)
+              }
+            } catch (error) {
+              console.error("Error refreshing dashboard:", error)
+            }
+          }
+          initializeDashboard()
+        }}
+      />
+
+      {/* Quick Staff Payment Modal */}
+      <QuickStaffPaymentModal
+        isOpen={showQuickStaffPaymentModal}
+        onClose={() => setShowQuickStaffPaymentModal(false)}
+        onSuccess={() => {
+          // Refresh dashboard stats after successful payment
+          const initializeDashboard = async () => {
+            try {
+              const dashboardResponse = await apiGet('/api/dashboard')
+              if (dashboardResponse.success) {
+                setStats(dashboardResponse.data.stats)
+              }
+            } catch (error) {
+              console.error("Error refreshing dashboard:", error)
+            }
+          }
+          initializeDashboard()
+        }}
+      />
     </div>
   )
 }

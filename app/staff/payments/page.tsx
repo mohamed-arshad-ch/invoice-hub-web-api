@@ -7,62 +7,53 @@ import StaffBottomNavigation from "@/app/components/dashboard/staff-bottom-navig
 import { formatCurrency } from "@/lib/utils-currency"
 import { Printer, Eye } from "lucide-react"
 import { getStaffPaymentsList } from "@/app/actions/staff-actions"
-
-// Payment type definition
-type Payment = {
-  id: number
-  staff_id: number
-  period_start: string
-  period_end: string
-  amount: number
-  date_paid: string
-  notes: string
-}
+import { checkAuthRole, type AuthUser } from "@/lib/auth"
+import { type StaffPayment } from "@/lib/db-service-staff"
 
 export default function StaffPayments() {
   const router = useRouter()
-  const [user, setUser] = useState<any>(null)
+  const [user, setUser] = useState<AuthUser | null>(null)
   const [loading, setLoading] = useState(true)
-  const [payments, setPayments] = useState<Payment[]>([])
+  const [payments, setPayments] = useState<StaffPayment[]>([])
 
   useEffect(() => {
-    // Check if user is authenticated
-    const userData = localStorage.getItem("user")
-    if (!userData) {
-      router.push("/")
-      return
-    }
+    const initializePayments = async () => {
+      try {
+        // Check authentication and get user data
+        const userData = await checkAuthRole("staff", router)
+        
+        if (!userData) {
+          // User is not authenticated or not staff, checkAuthRole handles redirect
+          return
+        }
 
-    try {
-      const parsedUser = JSON.parse(userData)
-      if (parsedUser.role !== "staff") {
-        router.push("/")
-        return
+        setUser(userData)
+
+        // Fetch payments for this staff member
+        if (userData.staff_id) {
+          await fetchPayments(userData.staff_id)
+        }
+      } catch (error) {
+        console.error("Error initializing payments:", error)
+        router.push("/staff/login")
+      } finally {
+        setLoading(false)
       }
-      setUser(parsedUser)
-
-      // Fetch payments for this staff member
-      fetchPayments(parsedUser.staff_id)
-    } catch (e) {
-      console.error("Error parsing user data:", e)
-      router.push("/")
-      return
     }
+
+    initializePayments()
   }, [router])
 
   const fetchPayments = async (staffId: number) => {
-    setLoading(true)
     try {
       const response = await getStaffPaymentsList(staffId)
       if (response.success) {
-        setPayments(response.data)
+        setPayments(response.data || [])
       } else {
         console.error("Error fetching payments:", response.error)
       }
     } catch (error) {
       console.error("Error fetching payments:", error)
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -85,6 +76,11 @@ export default function StaffPayments() {
         </div>
       </div>
     )
+  }
+
+  // User should be defined at this point, but safety check
+  if (!user) {
+    return null
   }
 
   return (

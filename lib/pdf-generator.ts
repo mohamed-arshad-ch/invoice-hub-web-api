@@ -148,13 +148,23 @@ export async function generateInvoicePDF(transaction: any, clientInfo: any) {
 
     if (isWeeklyInvoice && transaction.lineItems && transaction.lineItems.length > 0) {
       // For weekly invoices, show each transaction with the requested columns
-      tableData = transaction.lineItems.map((item: any) => [
-        item.transactionId || "-",
-        formatDateForInvoice(item.date),
-        item.productName || "Service", // Include product name in Description column
-        item.status ? item.status.charAt(0).toUpperCase() + item.status.slice(1) : "-",
-        `Rs. ${item.total}`,
-      ])
+      tableData = transaction.lineItems.map((item: any) => {
+        const status = item.status ? item.status.charAt(0).toUpperCase() + item.status.slice(1) : "-"
+        let amount = `Rs. ${item.total}`
+        
+        // For partial transactions, show paid amount
+        if (item.status === 'partial' && item.paidAmount !== undefined) {
+          amount = `Rs. ${item.paidAmount} / Rs. ${item.total}`
+        }
+        
+        return [
+          item.transactionId || "-",
+          formatDateForInvoice(item.date),
+          item.productName || "Service", // Include product name in Description column
+          status,
+          amount,
+        ]
+      })
     } else if (transaction.lineItems && transaction.lineItems.length > 0) {
       // For regular invoices, use the standard format
       tableData = transaction.lineItems.map((item: any) => [
@@ -207,8 +217,8 @@ export async function generateInvoicePDF(transaction: any, clientInfo: any) {
     const finalY = (doc as any).lastAutoTable.finalY + 10
 
     // Add totals
-    addText("Subtotal:", 150, finalY, { align: "right", font: "Poppins" })
-    addText(`Rs. ${transaction.amount}`, 190, finalY, { align: "right", font: "Poppins" })
+    addText("Subtotal:", 150, finalY, { align: "right" })
+    addText(`Rs. ${transaction.amount}`, 190, finalY, { align: "right" })
 
     // Add tax if we have line items with tax
     let totalTax = 0
@@ -217,36 +227,57 @@ export async function generateInvoicePDF(transaction: any, clientInfo: any) {
         totalTax += (item.unitPrice * item.quantity * item.taxRate) / 100
       })
       if (totalTax > 0) {
-        addText("Tax:", 150, finalY + 7, { align: "right", font: "Poppins" })
-        addText(`${totalTax}`, 190, finalY + 7, { align: "right", font: "Poppins" })
+        addText("Tax:", 150, finalY + 7, { align: "right" })
+        addText(`${totalTax}`, 190, finalY + 7, { align: "right" })
       }
     }
 
     // Add total
-    addText("Total:", 150, finalY + 15, { fontSize: 12, fontStyle: "bold", align: "right", font: "Poppins" })
+    addText("Total:", 150, finalY + 15, { fontSize: 12, fontStyle: "bold", align: "right" })
     addText(`Rs. ${transaction.amount}`, 190, finalY + 15, {
       fontSize: 12,
       fontStyle: "bold",
       align: "right",
-      font: "Poppins",
     })
 
+    let currentY = finalY + 15
+
+    // Add payment information for partial transactions
+    if (transaction.status === "partial" && transaction.paymentInfo) {
+      currentY += 10
+      addText("Amount Paid:", 150, currentY, { fontSize: 11, fontStyle: "bold", align: "right", color: "#22c55e" })
+      addText(`Rs. ${transaction.paymentInfo.totalPaid}`, 190, currentY, {
+        fontSize: 11,
+        fontStyle: "bold",
+        align: "right",
+        color: "#22c55e",
+      })
+
+      currentY += 7
+      addText("Remaining Balance:", 150, currentY, { fontSize: 11, fontStyle: "bold", align: "right", color: "#ef4444" })
+      addText(`Rs. ${transaction.paymentInfo.remainingAmount}`, 190, currentY, {
+        fontSize: 11,
+        fontStyle: "bold",
+        align: "right",
+        color: "#ef4444",
+      })
+    }
+
     // Add payment status
+    currentY += 10
     if (transaction.status === "paid") {
-      addText("PAID", 190, finalY + 25, {
+      addText("PAID", 190, currentY, {
         fontSize: 16,
         fontStyle: "bold",
         color: statusColors.paid,
         align: "right",
-        font: "Poppins",
       })
     } else if (transaction.status === "partial") {
-      addText("PARTIALLY PAID", 190, finalY + 25, {
+      addText("PARTIALLY PAID", 190, currentY, {
         fontSize: 16,
         fontStyle: "bold",
         color: statusColors.partial,
         align: "right",
-        font: "Poppins",
       })
     }
 

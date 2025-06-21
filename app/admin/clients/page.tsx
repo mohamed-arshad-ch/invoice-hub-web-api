@@ -30,6 +30,7 @@ import { Toast } from "@/app/components/ui/toast"
 import { ConfirmationModal } from "@/app/components/ui/confirmation-modal"
 import { CredentialsModal } from "@/app/components/ui/credentials-modal"
 import { AddButton } from "@/app/components/ui/floating-action-button"
+import RecordPaymentModal from "@/app/components/transactions/record-payment-modal"
 
 // Import API client and auth utilities
 import { apiGet, apiPost } from "@/lib/api-client"
@@ -70,6 +71,8 @@ type Transaction = {
   status: string
   description: string
   referenceNumber: string
+  clientId?: string | number
+  clientName?: string
 }
 
 // Payment type
@@ -122,6 +125,13 @@ export default function AdminClients() {
   const [viewingPaymentHistory, setViewingPaymentHistory] = useState<number | null>(null)
   const [clientPaymentHistory, setClientPaymentHistory] = useState<Payment[]>([])
   const [loadingPaymentHistory, setLoadingPaymentHistory] = useState(false)
+
+  // Record payment modal state
+  const [showRecordPaymentModal, setShowRecordPaymentModal] = useState(false)
+  const [selectedTransactionForPayment, setSelectedTransactionForPayment] = useState<Transaction | null>(null)
+  const [recordingPayment, setRecordingPayment] = useState(false)
+  const [transactionPayments, setTransactionPayments] = useState<any[]>([])
+  const [paymentSummary, setPaymentSummary] = useState<any>(null)
 
   useEffect(() => {
     const initializeClients = async () => {
@@ -382,6 +392,90 @@ export default function AdminClients() {
       setClientPaymentHistory([])
     } finally {
       setLoadingPaymentHistory(false)
+    }
+  }
+
+  // Handle record payment
+  const handleRecordPayment = async (transaction: Transaction) => {
+    setSelectedTransactionForPayment({
+      ...transaction,
+      clientId: viewingTransactions || 0,
+      clientName: selectedClient?.business_name || 'Unknown Client'
+    })
+    
+    // Fetch existing payments for this transaction if it's partial
+    if (transaction.status === 'partial') {
+      await fetchTransactionPayments(transaction.transactionId)
+    } else {
+      setTransactionPayments([])
+      setPaymentSummary(null)
+    }
+    
+    setShowRecordPaymentModal(true)
+  }
+
+  const fetchTransactionPayments = async (transactionId: string) => {
+    try {
+      const response = await apiPost('/api/transactions/payments', {
+        action: 'get-payments',
+        transactionId: transactionId
+      })
+
+      if (response.success && response.data?.data) {
+        setTransactionPayments(response.data.data.payments || [])
+        setPaymentSummary({
+          totalPaid: response.data.data.totalPaid || 0,
+          remainingAmount: response.data.data.remainingAmount || 0,
+          transactionTotal: response.data.data.transactionTotal || 0
+        })
+      }
+    } catch (error) {
+      console.error("Error fetching transaction payments:", error)
+    }
+  }
+
+  const handleSubmitPayment = async (paymentData: any) => {
+    if (!selectedTransactionForPayment) return
+
+    setRecordingPayment(true)
+    try {
+      const response = await apiPost('/api/transactions/payments', {
+        action: "record-payment",
+        transactionId: selectedTransactionForPayment.transactionId,
+        amount: parseFloat(paymentData.amount),
+        paymentDate: paymentData.paymentDate,
+        paymentMethod: paymentData.paymentMethod,
+        referenceNumber: paymentData.referenceNumber,
+        notes: paymentData.notes
+      })
+
+      if (response.success && response.data?.success) {
+        setToast({
+          message: response.data.message || "Payment recorded successfully",
+          type: "success",
+        })
+        
+        // Refresh transaction list for the client
+        if (viewingTransactions) {
+          await handleViewTransactions(viewingTransactions)
+        }
+        
+        setShowRecordPaymentModal(false)
+        setSelectedTransactionForPayment(null)
+      } else {
+        setToast({
+          message: response.data?.error || response.error || "Failed to record payment",
+          type: "error",
+        })
+      }
+    } catch (error) {
+      console.error("Error recording payment:", error)
+      setToast({
+        message: "An unexpected error occurred while recording the payment",
+        type: "error",
+      })
+    } finally {
+      setRecordingPayment(false)
     }
   }
 
@@ -876,7 +970,18 @@ export default function AdminClients() {
                           ₹{transaction.amount.toLocaleString()}
                         </span>
                       </div>
-                      <div className="mt-3 pt-3 border-t border-gray-200 flex justify-end">
+                      <div className="mt-3 pt-3 border-t border-gray-200 flex justify-between items-center">
+                        <div className="flex gap-2">
+                          {(transaction.status === 'pending' || transaction.status === 'partial') && (
+                            <button
+                              onClick={() => handleRecordPayment(transaction)}
+                              className="bg-green-600 text-white text-sm px-3 py-1 rounded-md hover:bg-green-700 transition-colors font-poppins flex items-center gap-1"
+                            >
+                              <CreditCard className="w-4 h-4" />
+                              Record Payment
+                            </button>
+                          )}
+                        </div>
                         <button
                           onClick={() => router.push(`/admin/transactions/edit/${transaction.transactionId}`)}
                           className="text-[#3A86FF] text-sm font-poppins hover:underline flex items-center gap-1"
@@ -989,6 +1094,29 @@ export default function AdminClients() {
         confirmText="Delete Client"
         type="danger"
       />
+
+      {/* Record Payment Modal */}
+      {showRecordPaymentModal && selectedTransactionForPayment && (
+        <RecordPaymentModal
+          isOpen={showRecordPaymentModal}
+          onClose={() => {
+            setShowRecordPaymentModal(false)
+            setSelectedTransactionForPayment(null)
+          }}
+          onSubmit={handleSubmitPayment}
+          transaction={{
+            ...selectedTransactionForPayment,
+            totalAmount: selectedTransactionForPayment.amount,
+            clientId: selectedTransactionForPayment.clientId || 0,
+            clientName: selectedTransactionForPayment.clientName || 'Unknown Client',
+            transactionDate: selectedTransactionForPayment.date,
+            dueDate: selectedTransactionForPayment.dueDate
+          }}
+          isSubmitting={recordingPayment}
+          existingPayments={transactionPayments}
+          paymentSummary={paymentSummary}
+        />
+      )}
 
       <BottomNavigation />
       <AddButton />

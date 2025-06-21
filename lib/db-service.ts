@@ -62,7 +62,7 @@ export async function getActiveClientCount(): Promise<number> {
 export async function getPendingInvoiceCount(): Promise<number> {
   try {
     const result = await sql`
-      SELECT COUNT(*) AS count FROM transactions WHERE status = 'pending'
+      SELECT COUNT(*) AS count FROM transactions WHERE status IN ('pending', 'partial')
     `
     return result[0].count as number
   } catch (error) {
@@ -292,7 +292,7 @@ export async function filterProducts(categoryFilter: string, statusFilter: strin
     query += " ORDER BY name ASC"
 
     const result = await sql.query(query, params)
-    return result.rows.map(formatProductFromDb)
+    return (result as any).rows.map(formatProductFromDb)
   } catch (error) {
     console.error("Error filtering products:", error)
     throw new Error("Failed to filter products")

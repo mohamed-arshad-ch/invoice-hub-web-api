@@ -16,16 +16,27 @@ import {
   AlertCircle,
   Printer,
   Loader2,
+  CreditCard,
 } from "lucide-react"
 import ClientDashboardHeader from "@/app/components/dashboard/client-header"
 import ClientBottomNavigation from "@/app/components/dashboard/client-bottom-navigation"
 import { formatCurrency } from "@/lib/utils-currency"
-import {
-  getClientTransactions,
-  getClientTransactionById,
-  type ClientTransaction,
-} from "@/app/actions/client-transactions-actions"
-import { generateInvoice } from "@/app/actions/invoice-actions"
+import { checkAuthRole, type AuthUser } from "@/lib/auth"
+import { apiGet, apiPost } from "@/lib/api-client"
+
+// Types
+export type ClientTransaction = {
+  id: string
+  transactionId: string
+  date: string
+  dueDate: string
+  amount: number
+  status: "draft" | "pending" | "paid" | "partial" | "overdue"
+  description: string
+  referenceNumber?: string
+  notes?: string
+  terms?: string
+}
 
 // Status badge colors and icons
 const statusInfo = {
@@ -38,7 +49,7 @@ const statusInfo = {
 
 export default function ClientTransactions() {
   const router = useRouter()
-  const [user, setUser] = useState<any>(null)
+  const [user, setUser] = useState<AuthUser | null>(null)
   const [loading, setLoading] = useState(true)
   const [transactions, setTransactions] = useState<ClientTransaction[]>([])
   const [statusFilter, setStatusFilter] = useState("all")
@@ -50,66 +61,83 @@ export default function ClientTransactions() {
   const [error, setError] = useState<string | null>(null)
   const [detailsLoading, setDetailsLoading] = useState(false)
   const [downloadingInvoice, setDownloadingInvoice] = useState<string | null>(null)
+  
+  // Payment history state
+  const [transactionPayments, setTransactionPayments] = useState<any[]>([])
+  const [paymentSummary, setPaymentSummary] = useState<any>(null)
+  const [loadingPayments, setLoadingPayments] = useState(false)
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1)
   const [itemsPerPage] = useState(4)
 
   useEffect(() => {
-    // Check if user is authenticated
-    const userData = localStorage.getItem("user")
-    if (!userData) {
-      router.push("/")
-      return
-    }
+    const initializeTransactions = async () => {
+      try {
+        // Check authentication and get user data
+        const userData = await checkAuthRole("client", router)
+        
+        if (!userData) {
+          // User is not authenticated or not client, checkAuthRole handles redirect
+          return
+        }
 
-    try {
-      const parsedUser = JSON.parse(userData)
-      if (parsedUser.role !== "client") {
-        router.push("/")
-        return
+        setUser(userData)
+
+        // Fetch transactions for this client
+        if (userData.client_id) {
+          await fetchTransactions(userData.client_id)
+        }
+      } catch (error) {
+        console.error("Error initializing transactions:", error)
+        router.push("/client/login")
+      } finally {
+        setLoading(false)
       }
-      setUser(parsedUser)
-
-      // Fetch transactions for this client
-      fetchTransactions(parsedUser.client_id)
-    } catch (e) {
-      console.error("Error parsing user data:", e)
-      router.push("/")
-      return
     }
+
+    initializeTransactions()
   }, [router])
 
   const fetchTransactions = async (clientId: number) => {
-    setLoading(true)
     try {
-      const result = await getClientTransactions(clientId)
+      const result = await apiGet('/api/clients/transactions')
       if (result.success) {
-        setTransactions(result.transactions)
+        setTransactions(result.data?.transactions || [])
       } else {
         setError(result.error || "Failed to fetch transactions")
       }
     } catch (error) {
       console.error("Error fetching transactions:", error)
       setError("An unexpected error occurred")
-    } finally {
-      setLoading(false)
     }
   }
 
   const fetchTransactionDetails = async (transaction: ClientTransaction) => {
-    if (!user || !user.client_id) {
+    if (!user?.client_id) {
       console.error("User or client_id not available")
       return
     }
 
     setDetailsLoading(true)
+    setTransactionPayments([]) // Reset payments
+    setPaymentSummary(null) // Reset payment summary
+    
     try {
-      // Use the same client_id that we used to fetch the transactions list
-      const result = await getClientTransactionById(transaction.transactionId, user.client_id)
+      // Fetch transaction details
+      const result = await apiPost('/api/clients/transactions', {
+        action: 'get-transaction-details',
+        transactionId: transaction.transactionId
+      })
 
       if (result.success) {
-        setSelectedTransaction(result.transaction)
+        setSelectedTransaction(result.data?.transaction)
+        
+        // If transaction is partial, fetch payment history
+        if (transaction.status === 'partial' || transaction.status === 'paid') {
+          await fetchTransactionPayments(transaction.transactionId)
+        }
+        
         setShowTransactionDetails(true)
       } else {
         // If we can't get the details, use the list item data as a fallback
@@ -118,6 +146,12 @@ export default function ClientTransactions() {
           ...transaction,
           lineItems: [],
         })
+        
+        // Still try to fetch payment history for partial/paid transactions
+        if (transaction.status === 'partial' || transaction.status === 'paid') {
+          await fetchTransactionPayments(transaction.transactionId)
+        }
+        
         setShowTransactionDetails(true)
       }
     } catch (error) {
@@ -133,21 +167,48 @@ export default function ClientTransactions() {
     }
   }
 
+  const fetchTransactionPayments = async (transactionId: string) => {
+    try {
+      setLoadingPayments(true)
+      const result = await apiPost('/api/clients/transactions', {
+        action: 'get-transaction-payments',
+        transactionId: transactionId
+      })
+
+      if (result.success && result.data) {
+        console.log(result.data);
+        
+        setTransactionPayments(result.data.data.payments || [])
+        setPaymentSummary(result.data.data.summary || null)
+      } else {
+        console.error("Error fetching transaction payments:", result.error)
+        setTransactionPayments([])
+        setPaymentSummary(null)
+      }
+    } catch (error) {
+      console.error("Error fetching transaction payments:", error)
+      setTransactionPayments([])
+      setPaymentSummary(null)
+    } finally {
+      setLoadingPayments(false)
+    }
+  }
+
   const handleDownloadInvoice = async (transaction: ClientTransaction) => {
-    if (!user || !user.client_id) {
+    if (!user?.client_id) {
       console.error("User or client_id not available")
       return
     }
 
     setDownloadingInvoice(transaction.id)
     try {
-      const result = await generateInvoice(transaction.transactionId, user.client_id)
+      const result = await apiGet(`/api/invoices?action=generate-invoice&transactionId=${encodeURIComponent(transaction.transactionId)}`)
 
-      if (result.success && result.pdfBase64) {
+      if (result.success && result.data?.pdfBase64) {
         // Create a link element and trigger download
         const link = document.createElement("a")
-        link.href = result.pdfBase64
-        link.download = result.fileName || `Invoice_${transaction.id}.pdf`
+        link.href = result.data.pdfBase64
+        link.download = result.data.fileName || `Invoice_${transaction.id}.pdf`
         document.body.appendChild(link)
         link.click()
         document.body.removeChild(link)
@@ -227,6 +288,11 @@ export default function ClientTransactions() {
         </div>
       </div>
     )
+  }
+
+  // User should be defined at this point, but safety check
+  if (!user) {
+    return null
   }
 
   return (
@@ -600,6 +666,102 @@ export default function ClientTransactions() {
                               </tbody>
                             </table>
                           </div>
+                        </div>
+                      )}
+
+                      {/* Payment History Section */}
+                      {(selectedTransaction.status === 'partial' || selectedTransaction.status === 'paid' || transactionPayments.length > 0) && (
+                        <div>
+                          <h4 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-3 font-poppins flex items-center">
+                            <CreditCard className="w-4 h-4 mr-2" />
+                            Payment History
+                          </h4>
+                          {loadingPayments ? (
+                            <div className="bg-gray-50 p-4 rounded-md flex justify-center">
+                              <div className="w-6 h-6 border-2 border-[#3A86FF] border-t-transparent rounded-full animate-spin"></div>
+                            </div>
+                          ) : transactionPayments.length > 0 ? (
+                            <div className="space-y-3">
+                              {transactionPayments.map((payment: any) => (
+                                <div key={payment.id} className="bg-gray-50 p-4 rounded-md">
+                                  <div className="flex justify-between items-start mb-2">
+                                    <div className="flex-1">
+                                      <div className="flex items-center justify-between mb-1">
+                                        <span className="font-medium text-gray-900 font-poppins">
+                                          {formatCurrency(payment.amount)}
+                                        </span>
+                                        <span className="text-sm text-gray-500 font-poppins">
+                                          {payment.payment_date ? 
+                                            new Date(payment.payment_date).toLocaleDateString("en-US", {
+                                              year: "numeric",
+                                              month: "short",
+                                              day: "numeric",
+                                            }) : 'N/A'
+                                          }
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center text-sm text-gray-600 font-poppins">
+                                        <span className="capitalize">{payment.payment_method?.replace(/_/g, ' ') || 'N/A'}</span>
+                                        {payment.reference_number && (
+                                          <>
+                                            <span className="mx-2">•</span>
+                                            <span>Ref: {payment.reference_number}</span>
+                                          </>
+                                        )}
+                                      </div>
+                                      {payment.notes && (
+                                        <p className="text-sm text-gray-600 font-poppins mt-1">{payment.notes}</p>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                              
+                              {/* Payment Summary */}
+                              {paymentSummary && (
+                                <div className="bg-blue-50 p-4 rounded-md border border-blue-200">
+                                  <div className="flex justify-between items-center">
+                                    <span className="text-sm font-medium text-blue-900 font-poppins">
+                                      Total Amount:
+                                    </span>
+                                    <span className="font-bold text-blue-900 font-poppins">
+                                      {formatCurrency(paymentSummary.transactionTotal)}
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between items-center mt-1">
+                                    <span className="text-sm font-medium text-blue-900 font-poppins">
+                                      Total Paid:
+                                    </span>
+                                    <span className="font-bold text-green-600 font-poppins">
+                                      {formatCurrency(paymentSummary.totalPaid)}
+                                    </span>
+                                  </div>
+                                  {paymentSummary.remainingAmount > 0 && (
+                                    <div className="flex justify-between items-center mt-1">
+                                      <span className="text-sm text-blue-700 font-poppins">
+                                        Remaining Balance:
+                                      </span>
+                                      <span className="font-medium text-red-600 font-poppins">
+                                        {formatCurrency(paymentSummary.remainingAmount)}
+                                      </span>
+                                    </div>
+                                  )}
+                                  <div className="flex justify-between items-center mt-1 pt-1 border-t border-blue-200">
+                                    <span className="text-xs text-blue-600 font-poppins">
+                                      Total Payments: {paymentSummary.paymentCount}
+                                    </span>
+                                    <span className="text-xs text-blue-600 font-poppins">
+                                      Status: {selectedTransaction?.status || 'N/A'}
+                                    </span>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="bg-gray-50 p-4 rounded-md text-center">
+                              <p className="text-gray-500 font-poppins text-sm">No payments recorded yet</p>
+                            </div>
+                          )}
                         </div>
                       )}
 

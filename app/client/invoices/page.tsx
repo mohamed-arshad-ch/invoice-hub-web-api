@@ -6,8 +6,8 @@ import { Download, Eye, ChevronLeft, ChevronRight, FileText, X, Loader2 } from "
 import ClientDashboardHeader from "@/app/components/dashboard/client-header"
 import ClientBottomNavigation from "@/app/components/dashboard/client-bottom-navigation"
 import { formatCurrency } from "@/lib/utils-currency"
-import { getClientTransactions } from "@/app/actions/client-transactions-actions"
-import { generateWeeklyInvoice } from "@/app/actions/invoice-actions"
+import { checkAuthRole, type AuthUser } from "@/lib/auth"
+import { apiGet, apiPost } from "@/lib/api-client"
 
 // Helper function to get the date range for a week (Monday to Saturday)
 const getWeekDateRange = (year: number, month: number, weekIndex: number) => {
@@ -101,7 +101,7 @@ const getMonthYearString = (date: Date) => {
 
 export default function ClientInvoices() {
   const router = useRouter()
-  const [user, setUser] = useState<any>(null)
+  const [user, setUser] = useState<AuthUser | null>(null)
   const [loading, setLoading] = useState(true)
   const [transactions, setTransactions] = useState<any[]>([])
   const [weeklyData, setWeeklyData] = useState<any[]>([])
@@ -110,6 +110,10 @@ export default function ClientInvoices() {
   const [error, setError] = useState<string | null>(null)
   const [downloadingInvoice, setDownloadingInvoice] = useState<number | null>(null)
   const [monthTransitioning, setMonthTransitioning] = useState(false)
+  
+  // Payment information state for partial transactions
+  const [transactionPayments, setTransactionPayments] = useState<{[key: string]: any}>({})
+  const [loadingPayments, setLoadingPayments] = useState<{[key: string]: boolean}>({})
 
   // Month navigation state
   const [currentDate, setCurrentDate] = useState(new Date())
@@ -117,59 +121,84 @@ export default function ClientInvoices() {
   const currentYear = currentDate.getFullYear()
 
   useEffect(() => {
-    // Check if user is authenticated
-    const userData = localStorage.getItem("user")
-    if (!userData) {
-      router.push("/")
-      return
-    }
+    const initializeInvoices = async () => {
+      try {
+        // Check authentication and get user data
+        const userData = await checkAuthRole("client", router)
+        
+        if (!userData) {
+          // User is not authenticated or not client, checkAuthRole handles redirect
+          return
+        }
 
-    try {
-      const parsedUser = JSON.parse(userData)
-      if (parsedUser.role !== "client") {
-        router.push("/")
-        return
+        setUser(userData)
+
+        // Fetch transactions for this client
+        if (userData.client_id) {
+          await fetchTransactions(userData.client_id)
+        }
+      } catch (error) {
+        console.error("Error initializing invoices:", error)
+        router.push("/client/login")
+      } finally {
+        setLoading(false)
       }
-      setUser(parsedUser)
-
-      // Fetch transactions for this client
-      fetchTransactions(parsedUser.client_id)
-    } catch (e) {
-      console.error("Error parsing user data:", e)
-      router.push("/")
-      return
     }
+
+    initializeInvoices()
   }, [router])
 
   // Re-process weekly data when month changes
   useEffect(() => {
     if (transactions.length > 0) {
       setMonthTransitioning(true)
-      processWeeklyData(transactions)
-      // Add a small delay to show the transition effect
-      setTimeout(() => setMonthTransitioning(false), 300)
+      processWeeklyData(transactions).finally(() => {
+        // Add a small delay to show the transition effect
+        setTimeout(() => setMonthTransitioning(false), 300)
+      })
     }
   }, [currentMonth, currentYear, transactions])
 
   const fetchTransactions = async (clientId: number) => {
-    setLoading(true)
     try {
-      const result = await getClientTransactions(clientId)
+      const result = await apiGet('/api/clients/transactions')
       if (result.success) {
-        setTransactions(result.transactions)
-        processWeeklyData(result.transactions)
+        const transactions = result.data?.transactions || []
+        setTransactions(transactions)
+        await processWeeklyData(transactions)
       } else {
         setError(result.error || "Failed to fetch transactions")
       }
     } catch (error) {
       console.error("Error fetching transactions:", error)
       setError("An unexpected error occurred")
-    } finally {
-      setLoading(false)
     }
   }
 
-  const processWeeklyData = (transactions: any[]) => {
+  const fetchTransactionPayments = async (transactionId: string) => {
+    try {
+      setLoadingPayments(prev => ({ ...prev, [transactionId]: true }))
+      const result = await apiPost('/api/clients/transactions', {
+        action: 'get-transaction-payments',
+        transactionId: transactionId
+      })
+
+      if (result.success && result.data && result.data.data) {
+        setTransactionPayments(prev => ({
+          ...prev,
+          [transactionId]: result.data.data
+        }))
+      } else {
+        console.error("Error fetching transaction payments:", result.error)
+      }
+    } catch (error) {
+      console.error("Error fetching transaction payments:", error)
+    } finally {
+      setLoadingPayments(prev => ({ ...prev, [transactionId]: false }))
+    }
+  }
+
+  const processWeeklyData = async (transactions: any[]) => {
     // Create data for weeks in the current month
     const weeksData = []
 
@@ -188,10 +217,23 @@ export default function ClientInvoices() {
           return transactionDate >= startTime && transactionDate <= endTime
         })
 
-        // Calculate total amount for this week
-        const totalAmount = weekTransactions.reduce((sum, transaction) => {
-          return sum + (transaction.status === "paid" ? transaction.amount : 0)
-        }, 0)
+        // Calculate total amount for this week (including partial payments)
+        let totalAmount = 0
+        let totalPaid = 0
+        let totalRemaining = 0
+        
+        for (const transaction of weekTransactions) {
+          totalAmount += transaction.amount
+          
+          if (transaction.status === "paid") {
+            totalPaid += transaction.amount
+          } else if (transaction.status === "partial") {
+            // For partial transactions, we'll fetch payment info when viewing details
+            totalPaid += transaction.amount * 0.5 // Estimate for display, will be updated when viewing details
+          }
+        }
+        
+        totalRemaining = totalAmount - totalPaid
 
         weeksData.push({
           index: i,
@@ -199,7 +241,11 @@ export default function ClientInvoices() {
           dateRange: weekRange,
           transactions: weekTransactions,
           totalAmount: totalAmount,
-          formattedTotal: formatCurrency(totalAmount),
+          totalPaid: totalPaid,
+          totalRemaining: totalRemaining,
+          formattedTotal: formatCurrency(totalPaid), // Show paid amount
+          formattedTotalAmount: formatCurrency(totalAmount),
+          formattedRemaining: formatCurrency(totalRemaining),
         })
       }
     }
@@ -207,13 +253,19 @@ export default function ClientInvoices() {
     setWeeklyData(weeksData)
   }
 
-  const handleViewTransactions = (week: any) => {
+  const handleViewTransactions = async (week: any) => {
     setSelectedWeek(week)
     setShowTransactionDetails(true)
+    
+    // Fetch payment information for partial transactions
+    const partialTransactions = week.transactions.filter((t: any) => t.status === 'partial')
+    for (const transaction of partialTransactions) {
+      await fetchTransactionPayments(transaction.transactionId)
+    }
   }
 
   const handleDownloadInvoice = async (week: any) => {
-    if (!user || !user.client_id) {
+    if (!user?.client_id) {
       console.error("User or client_id not available")
       return
     }
@@ -232,13 +284,13 @@ export default function ClientInvoices() {
       const endDateStr = week.dateRange.end.toISOString()
 
       // Generate a comprehensive weekly invoice with all transactions
-      const result = await generateWeeklyInvoice(user.client_id, startDateStr, endDateStr)
+      const result = await apiGet(`/api/invoices?action=generate-weekly-invoice&startDate=${encodeURIComponent(startDateStr)}&endDate=${encodeURIComponent(endDateStr)}`)
 
-      if (result.success && result.pdfBase64) {
+      if (result.success && result.data?.pdfBase64) {
         // Create a link element and trigger download
         const link = document.createElement("a")
-        link.href = result.pdfBase64
-        link.download = result.fileName || `Weekly_Invoice_${week.dateRange.label.replace(/\s/g, "_")}.pdf`
+        link.href = result.data.pdfBase64
+        link.download = result.data.fileName || `Weekly_Invoice_${week.dateRange.label.replace(/\s/g, "_")}.pdf`
         document.body.appendChild(link)
         link.click()
         document.body.removeChild(link)
@@ -273,6 +325,11 @@ export default function ClientInvoices() {
         </div>
       </div>
     )
+  }
+
+  // User should be defined at this point, but safety check
+  if (!user) {
+    return null
   }
 
   return (
@@ -469,38 +526,82 @@ export default function ClientInvoices() {
                       </button>
                     </div>
 
-                    {selectedWeek.transactions.map((transaction: any) => (
-                      <div
-                        key={transaction.id}
-                        className="bg-gray-50 rounded-lg p-4 hover:bg-gray-100 transition-colors"
-                      >
-                        <div className="flex justify-between items-start mb-2">
-                          <div>
-                            <h3 className="font-medium text-gray-900 font-poppins">{transaction.id}</h3>
-                            <p className="text-sm text-gray-500 font-poppins">{transaction.description}</p>
+                    {selectedWeek.transactions.map((transaction: any) => {
+                      const paymentData = transactionPayments[transaction.transactionId]
+                      const isLoadingPayments = loadingPayments[transaction.transactionId]
+                      
+                      return (
+                        <div
+                          key={transaction.id}
+                          className="bg-gray-50 rounded-lg p-4 hover:bg-gray-100 transition-colors"
+                        >
+                          <div className="flex justify-between items-start mb-2">
+                            <div>
+                              <h3 className="font-medium text-gray-900 font-poppins">{transaction.id}</h3>
+                              <p className="text-sm text-gray-500 font-poppins">{transaction.description}</p>
+                            </div>
+                            <span
+                              className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
+                                transaction.status === "paid"
+                                  ? "bg-green-100 text-green-800"
+                                  : transaction.status === "pending"
+                                    ? "bg-yellow-100 text-yellow-800"
+                                    : transaction.status === "partial"
+                                      ? "bg-blue-100 text-blue-800"
+                                      : transaction.status === "overdue"
+                                        ? "bg-red-100 text-red-800"
+                                        : "bg-gray-100 text-gray-800"
+                              } font-poppins capitalize`}
+                            >
+                              {transaction.status}
+                            </span>
                           </div>
-                          <span
-                            className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
-                              transaction.status === "paid"
-                                ? "bg-green-100 text-green-800"
-                                : transaction.status === "pending"
-                                  ? "bg-yellow-100 text-yellow-800"
-                                  : transaction.status === "overdue"
-                                    ? "bg-red-100 text-red-800"
-                                    : "bg-gray-100 text-gray-800"
-                            } font-poppins capitalize`}
-                          >
-                            {transaction.status}
-                          </span>
+                          <div className="flex justify-between items-center mb-2">
+                            <span className="text-sm text-gray-600 font-poppins">{transaction.date}</span>
+                            <span className="font-medium text-gray-900 font-poppins">
+                              {formatCurrency(transaction.amount)}
+                            </span>
+                          </div>
+                          
+                          {/* Payment Information for Partial Transactions */}
+                          {transaction.status === 'partial' && (
+                            <div className="mt-3 pt-3 border-t border-gray-200">
+                              {isLoadingPayments ? (
+                                <div className="flex items-center justify-center py-2">
+                                  <div className="w-4 h-4 border-2 border-[#3A86FF] border-t-transparent rounded-full animate-spin"></div>
+                                  <span className="ml-2 text-sm text-gray-500 font-poppins">Loading payment info...</span>
+                                </div>
+                              ) : paymentData && paymentData.summary ? (
+                                <div className="space-y-1">
+                                  <div className="flex justify-between items-center">
+                                    <span className="text-sm text-green-600 font-poppins font-medium">Amount Paid:</span>
+                                    <span className="text-sm text-green-600 font-poppins font-bold">
+                                      {formatCurrency(paymentData.summary.totalPaid)}
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between items-center">
+                                    <span className="text-sm text-red-600 font-poppins font-medium">Remaining:</span>
+                                    <span className="text-sm text-red-600 font-poppins font-bold">
+                                      {formatCurrency(paymentData.summary.remainingAmount)}
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between items-center">
+                                    <span className="text-xs text-gray-500 font-poppins">Payments:</span>
+                                    <span className="text-xs text-gray-500 font-poppins">
+                                      {paymentData.summary.paymentCount}
+                                    </span>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="text-center py-2">
+                                  <span className="text-sm text-gray-500 font-poppins">No payment info available</span>
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-sm text-gray-600 font-poppins">{transaction.date}</span>
-                          <span className="font-medium text-gray-900 font-poppins">
-                            {formatCurrency(transaction.amount)}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 )}
               </div>

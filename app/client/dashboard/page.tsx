@@ -6,63 +6,70 @@ import { ArrowUpRight, DollarSign, TrendingUp, CheckCircle, AlertCircle, Clock }
 import ClientDashboardHeader from "@/app/components/dashboard/client-header"
 import ClientBottomNavigation from "@/app/components/dashboard/client-bottom-navigation"
 import { formatCurrency } from "@/lib/utils-currency"
-import { getClientTransactions } from "@/app/actions/client-transactions-actions"
+import { checkAuthRole, type AuthUser } from "@/lib/auth"
+import { apiGet } from "@/lib/api-client"
 
 // Status badge colors and icons
 const statusInfo = {
   paid: { color: "bg-green-100 text-green-800", icon: <CheckCircle className="w-4 h-4" /> },
   pending: { color: "bg-yellow-100 text-yellow-800", icon: <Clock className="w-4 h-4" /> },
   overdue: { color: "bg-red-100 text-red-800", icon: <AlertCircle className="w-4 h-4" /> },
+  draft: { color: "bg-gray-100 text-gray-800", icon: <Clock className="w-4 h-4" /> },
+  partial: { color: "bg-blue-100 text-blue-800", icon: <ArrowUpRight className="w-4 h-4" /> },
 }
+
+// Default status info for unknown statuses
+const defaultStatusInfo = { color: "bg-gray-100 text-gray-800", icon: <Clock className="w-4 h-4" /> }
 
 export default function ClientDashboard() {
   const router = useRouter()
-  const [user, setUser] = useState<any>(null)
+  const [user, setUser] = useState<AuthUser | null>(null)
   const [loading, setLoading] = useState(true)
   const [transactions, setTransactions] = useState<any[]>([])
   const [totalPaid, setTotalPaid] = useState<number>(0)
 
   useEffect(() => {
-    // Check if user is authenticated
-    const userData = localStorage.getItem("user")
-    if (!userData) {
-      router.push("/")
-      return
-    }
+    const initializeDashboard = async () => {
+      try {
+        // Check authentication and get user data
+        const userData = await checkAuthRole("client", router)
+        
+        if (!userData) {
+          // User is not authenticated or not client, checkAuthRole handles redirect
+          return
+        }
 
-    try {
-      const parsedUser = JSON.parse(userData)
-      if (parsedUser.role !== "client") {
-        router.push("/")
-        return
+        setUser(userData)
+
+        // Fetch transactions for this client
+        if (userData.client_id) {
+          await fetchTransactions(userData.client_id)
+        }
+      } catch (error) {
+        console.error("Error initializing dashboard:", error)
+        router.push("/client/login")
+      } finally {
+        setLoading(false)
       }
-      setUser(parsedUser)
-
-      // Fetch transactions for this client
-      fetchTransactions(parsedUser.client_id)
-    } catch (e) {
-      console.error("Error parsing user data:", e)
-      router.push("/")
-      return
     }
+
+    initializeDashboard()
   }, [router])
 
   const fetchTransactions = async (clientId: number) => {
-    setLoading(true)
     try {
-      const result = await getClientTransactions(clientId)
+      const result = await apiGet('/api/clients/transactions')
       if (result.success) {
-        setTransactions(result.transactions)
+        const transactions = result.data?.transactions || []
+        setTransactions(transactions)
         // Calculate total paid amount
-        const paidAmount = result.transactions.filter((t) => t.status === "paid").reduce((sum, t) => sum + t.amount, 0)
+        const paidAmount = transactions.filter((t: any) => t.status === "paid").reduce((sum: number, t: any) => sum + t.amount, 0)
         setTotalPaid(paidAmount)
       } else {
         console.error("Error loading transactions:", result.error)
       }
     } catch (error) {
       console.error("Error fetching transactions:", error)
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -75,6 +82,11 @@ export default function ClientDashboard() {
         </div>
       </div>
     )
+  }
+
+  // User should be defined at this point, but safety check
+  if (!user) {
+    return null
   }
 
   return (
@@ -140,10 +152,10 @@ export default function ClientDashboard() {
                     <td className="py-4">
                       <span
                         className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
-                          statusInfo[transaction.status as keyof typeof statusInfo].color
+                          (statusInfo[transaction.status as keyof typeof statusInfo] || defaultStatusInfo).color
                         } font-poppins capitalize`}
                       >
-                        {statusInfo[transaction.status as keyof typeof statusInfo].icon}
+                        {(statusInfo[transaction.status as keyof typeof statusInfo] || defaultStatusInfo).icon}
                         <span>{transaction.status}</span>
                       </span>
                     </td>
